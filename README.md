@@ -13,39 +13,53 @@
 
 1. **把落差称出来**：实验室白底数据训练，直接测互联网真实场景的 PlantDoc，零样本 12.29%。
 2. **把评估协议讲清楚**：初版拿全类 argmax 对 PlantDoc 标签，会系统性低估；改成按 1:1 映射把概率折叠到 27 类再 argmax，得 38.98%（Wilson 95% CI [33.0, 45.3]）。同时论证「受限协议」（只在 27 个候选类里取 argmax）与「折叠协议」在 1:1 映射下**数学等价**——实测 236 个样本上两者预测差异为 **0**，因此只报一个数，拒绝把同一个数当两个结果展示。
-3. **把不确定性变成可用信号**：补 risk–coverage 曲线；做三模型一致性分层——三个模型结论一致时准确率 65%，不一致时只有 25.6%，一致性本身就是廉价的拒识器。
-4. **给补救链，而不是只报坏消息**：AdaBN（只重估 BN 统计量，不动权重）→ 16.53%；域随机化（按偏移谱把尺度增强当主力）；混合域微调（用目标域少量标注）→ 65.68%。
+3. **把不确定性变成可用信号**：补 risk–coverage 曲线；做多模型一致性分层——分组内结论一致时准确率 65%（n=80），不一致时只有 25.6%（n=156），一致性本身就是廉价的拒识器。
+4. **给补救链，而不是只报坏消息**：AdaBN（只重估 BN 统计量，不动权重）、域随机化（按偏移谱把尺度增强当主力）、混合域微调（用目标域少量标注）。三条补救路径的脚本都在 `src/` 里，但它们的度量产物**未随仓库提供**（`outputs/metrics/` 只有质量报告与一次训练记录），所以本 README 不报这三步的准确率。
 
 ## 跨域实验（核心）
 
 | 设置 | 准确率 | 说明 |
 |---|---|---|
-| 同分布测试集，类均衡 4,986 张 | **95.67%** | Top-3 99.28%，RTX 4060 单张 9.16 ms（`results/benchmark.json`） |
-| PlantDoc 零样本 | **12.29%** | 不接触目标域任何数据 |
-| PlantDoc 折叠协议 | **38.98%** | Wilson 95% CI [33.0, 45.3]，n=236 |
-| AdaBN 单轮 | 16.53% | 无监督，只用无标签图重估 BN |
-| 混合域微调 | 65.68% | 用了目标域标注，衡量「适配」而非「泛化」 |
+| 同分布测试集 | **95.67%** | 完整划分未随仓库提供；出处 `results/cross_domain_resnet50.json` 的 `in_domain_accuracy` |
+| PlantDoc 零样本 | **12.29%** | 不接触目标域任何数据；出处 `results/cross_domain_diag.json`（`correct 29 / n 236`） |
+| PlantDoc 折叠协议 | **38.98%** | Wilson 95% CI [33.0, 45.3]，n=236；出处同上（`acc_fold`、`ci_low`/`ci_high`） |
+| AdaBN 单轮 | — | 脚本 `src/bn_adapt.py` 可跑，度量产物未随仓库提供，不报数字 |
+| 混合域微调 | — | 脚本 `src/mixed_finetune.py` 可跑，度量产物未随仓库提供，不报数字 |
+
+RTX 4060 上 ResNet50 单张 9.16 ms 的出处是 `results/benchmark.json` 的 `latency_ms`；Top-3 指标不在该文件里，本 README 不再报同分布集上的 Top-3。AdaBN 与混合域微调的产物路径是 `outputs/metrics/bn_adapt_*.json` 与 `outputs/metrics/mixed_*.json`，这两个目录里没有对应文件——原始实验数据未随仓库提供，需要 GPU 与目标域标注自行补跑。
+
+以上 95.67% / 12.29% / 38.98% / Wilson 区间 / n=236 五个值都能由 `results/` 下的 JSON 直接复算：29/236=12.29%、92/236=38.98%、0.9567 为 `in_domain_accuracy`，CI 用 Wilson 公式代入 p=92/236、n=236、z=1.96 即得 [0.3298, 0.4533]。
 
 - **样本量先声明**：PlantDoc 测试集只有 236 张，且只覆盖一个目标域（互联网真实场景）。
   38.98% 的 Wilson 95% CI 是 [33.0, 45.3]，宽约 12 个百分点；所以跨域数字应当读作量级与
   方向，不是精确点估计。本仓库所有跨域结论都在这个样本量条件下报告。
 - **协议等价性**：全类 → PlantDoc 27 类的映射是 1:1（不存在多个源类并到同一目标类）。此时「折叠后取 argmax」与「只在可映射类中取最大概率」必然给出同一预测；实测 236 张里差异数 0。所以报告里只有两种协议（严格 / 折叠），不把受限协议单列成一个「更好的结果」。
 - **risk–coverage**：按置信度排序、只回答最有把握的部分，覆盖率下降时准确率上升——低置信度可以安全弃答，而不是硬报。
-- **一致性分层**：一致组 65% vs 不一致组 25.6%。无需额外训练，三个骨干的分歧就能当拒识信号。
+- **一致性分层**：一致组 65%（n=80）vs 不一致组 25.6%（n=156），出处 `results/cross_domain_diag.json` 的 `consistency`。无需额外训练，骨干之间的分歧就能当拒识信号。注意 JSON 里的键名写作「三模型一致」，而 `src/cross_domain_diag.py` 在参与模型数 ≥2 时即按一致性分组，产物本身不记录模型名单——所以这里只把它读作「多模型一致性分层」，不要当成「恰好三个骨干」的证据。
 - **偏移谱**：对同分布测试图逐级施加背景、光照、模糊、目标缩小、旋转透视偏移，定位主因是**目标尺度**而非背景颜色（`src/offset_spectrum.py`）。
-- **复现命令**：`python src/cross_domain_protocol.py`（三种协议）、`cross_domain_diag.py`（诊断图）、`bn_adapt.py`、`domain_rand_train.py`、`mixed_finetune.py`。
+- **复现命令**：`python src/cross_domain_protocol.py`（三种协议）、`cross_domain_diag.py`（诊断图）、`bn_adapt.py`、`domain_rand_train.py`、`mixed_finetune.py`。后三个补救脚本需要 GPU 与目标域数据，产物不在本仓库内。
 
 ## 系统组成
 
-- **单文件 Gradio，五个页签**（`app/web_agent.py`，5,368 行）：单张诊断 / 病斑定位 / 批量诊断 / 模型评估 / 问答与历史。
-- **检索层**（`src/ai_qa.py`，1,103 行）：本地 bge-small-zh 向量 + jieba/BM25 混合召回；独立意图分类器（450 样本 / 5 类，bge 嵌入 + 逻辑回归）；离域检测；4 个知识库覆盖度审计。
+- **单文件 Gradio，五个页签**（`app/web_agent.py`，5,368 行）：智能诊断 / 批量诊断 / 模型评估 / 知识问答 / 更多。其中「病斑定位」不是页签，是智能诊断页右栏的一个面板（`app/web_agent.py:5024`），批量诊断的详情区也有同类面板；「模型评估」页下再分同分布指标 / 评估图表 / 三模型对比 / 跨域泛化 / 数据资产五个子页签。
+- **检索层**（`src/ai_qa.py`，1,103 行）：本地 bge-small-zh 向量 + jieba/BM25 混合召回；离域检测（作物白名单 + 别名剔除的规则实现，不是分类器）。
+- **意图分类**：训练样本在 `src/intent_model/cases_intent_train.py`（450 条 / 5 类，实测 occurrence 101、control 136、symptom 94、compare 86、system 33），但**模型文件 `intent_clf.pkl` 与训练脚本未随仓库提供**。`src/ai_qa.py:895` 找不到 pkl 就把加载标记为失败，运行时回退到 `_INTENT_RULES` 关键词规则。代码注释里的「严格泛化测试 84.9%」来自开发期实验，仓库内无任何出处文件，不应作为结论引用。
 - **降级设计**：检索必有、生成可选。没有 API Key 或断网时直接返回检索到的知识原文，问答仍然可用，而不是报错。
-- **知识库**：`src/knowledge_kg.py` 42,487 行，是自动生成的数据字典（CropDP-KG 2,536 条），与精编条目合并后覆盖 **127 类 / 28 作物**。
+- **知识库**（实测口径，见下「能力范围」）：`src/knowledge_kg.py` 42,487 行，是自动生成的数据字典（CropDP-KG 2,536 条 / 61 作物）。
 
 ## 能力范围
 
-- **127 类 / 28 作物**：知识库按这个类别空间组织（CropDP-KG 2,536 条自动数据字典 + 精编条目）。之外的病害不硬套答案，走「超出范围 / 未收录」提示，而不是用最接近的类糊一个结论。
-- PlantVillage 原版是 38 类 / 14 作物，那是更早的版本。分类模型按 38 类训练、知识问答按 127 类覆盖，两者刻意不强行对齐：知识层比分类层宽，用来回答「这是什么病、怎么防」，而不只是「这张图属于哪一类」。
+知识条目数以 `src/knowledge.py` 合并后的实测值为准（可以自己导入模块数一遍）：
+
+| 口径 | 条目数 | 作物数 | 说明 |
+|---|---|---|---|
+| `KNOWLEDGE`（精编库） | 132 | 28 | 其中 12 条是「健康」类，非病害条目 |
+| `KG_KNOWLEDGE`（CropDP-KG 扩充字典） | 2,536 | 61 | `src/knowledge_kg.py` 自动生成，来源 `data/cropdpkg/` 不随仓库提供 |
+| `ALL_KNOWLEDGE`（合并后实际使用） | 2,645 | 66 | 检索问答走这一层 |
+
+- **不硬套答案**：上表条目空间之外的病害不硬套答案，走「超出范围 / 未收录」提示，而不是用最接近的类糊一个结论。
+- PlantVillage 原版是 38 类 / 14 作物（`data/splits.json` 的 `classes` 为 38、作物映射 14 个）。分类模型按 38 类训练、知识问答按上表条目覆盖，两者刻意不强行对齐：知识层比分类层宽，用来回答「这是什么病、怎么防」，而不只是「这张图属于哪一类」。
+- 早先版本写的「127 类 / 28 作物」在精编库（132 条）和合并库（2,645 条）两个口径上都对不上，已按实测值改正。
 
 ## 代码结构
 
@@ -83,7 +97,7 @@ plant/
 |---|---|
 | PlantVillage | https://github.com/spMohanty/PlantVillage-Dataset |
 | PlantDoc | https://github.com/pratikkayal/PlantDoc-Dataset |
-| CropDP-KG（127 类知识库来源） | https://github.com/dadadaray/CropDP-KG |
+| CropDP-KG（扩充知识库来源，2,536 条） | https://github.com/dadadaray/CropDP-KG |
 | bge-small-zh-v1.5 | https://huggingface.co/BAAI/bge-small-zh-v1.5 |
 
 ```bash
@@ -97,9 +111,9 @@ python app/web_agent.py                     # http://127.0.0.1:7860
 
 `assets/samples/` 里有几张示例图（苹果黑星病、玉米锈病、马铃薯健康、番茄晚疫病，共 4 张、256×256、约 136 KB），可直接拖进界面看效果（需先有模型权重；按「最小复现（实测）」跑一遍就有）。
 
-**没有权重也能启动。** 界面顶部标「权重未找到」，单张诊断 / 病斑定位 / 批量诊断在推理时提示缺少 `resnet50_best.pth` 等文件；检索问答、知识库与「模型评估」页照常可用。这是刻意设计：权重缺失只关掉推理路径，不连累整个界面。缺 `data/splits.json` 才是硬错误——启动时打印放置说明并以码 2 退出，而不是抛裸 traceback，检查逻辑在 `src/preflight.py`（只检查、不生成也不伪造任何数据或权重）。
+**没有权重也能启动。** 界面顶部标「权重未找到」，智能诊断（含右上角病斑定位面板）/ 批量诊断在推理时提示缺少 `resnet50_best.pth` 等文件；检索问答、知识库与「模型评估」页照常可用。这是刻意设计：权重缺失只关掉推理路径，不连累整个界面。缺 `data/splits.json` 才是硬错误——启动时打印放置说明并以码 2 退出，而不是抛裸 traceback，检查逻辑在 `src/preflight.py`（只检查、不生成也不伪造任何数据或权重）。
 
-Windows 用户可直接双击 `start_local.bat`，或 `pwsh ./run_all.ps1` 跑完整实验流程。打包版（嵌入式运行时）未包含在本仓库。
+Windows 用户可直接双击 `start_local.bat`，或 `pwsh ./run_all.ps1` 按顺序跑五步：训练三骨干 → 评估出图 → 性能基准 → 退化鲁棒 → 遮挡。跨域三协议、AdaBN、域随机化、混合域微调**不在**这个脚本里，需要按「跨域实验」小节的命令单独跑。打包版（嵌入式运行时）未包含在本仓库。
 
 ## 最小复现（实测）
 
@@ -197,7 +211,7 @@ python src/predict.py --split test   # 在 splits.json 的测试集上算 top-1 
 
 ## 数据与证据
 
-`results/` 下是本仓库引用的全部实验数字的原始输出（6 个文件、8.7 KB，均为实测 JSON）：
+`results/` 下是本仓库引用的实验数字的原始输出（6 个文件，均为实测 JSON）。README 里出现的每个跨域数字都能在这里找到出处；找不到出处的数字已从 README 删除，或标注为「未随仓库提供」：
 
 | 文件 | 内容 |
 |---|---|
@@ -207,6 +221,8 @@ python src/predict.py --split test   # 在 splits.json 的测试集上算 top-1 
 | `results/cross_domain_resnet50.json` | ResNet50 在 PlantDoc 上的逐类准确率与域内准确率 0.9567 |
 | `results/benchmark.json` | 三种骨干在 RTX 4060 上的延迟/吞吐/模型体积（**延迟/吞吐的唯一口径**：ResNet50 9.16 ms、EfficientNet-B0 12.5 ms、MobileNetV3-Large 10.06 ms） |
 | `results/domain_classifier.json` | 域判别器准确率 0.9481（5 折 CV） |
+
+这份目录里**没有** AdaBN（预期路径 `outputs/metrics/bn_adapt_*.json`）、混合域微调（`outputs/metrics/mixed_*.json`）的产物，也没有同分布集上的 Top-3 指标：前者只在 `src/bn_adapt.py`、`src/mixed_finetune.py` 里有脚本，后者不在 `results/benchmark.json` 的字段里。这三项因此不在 README 中报数字。
 
 训练数据与权重不在仓库中，获取方式见「快速开始」。示例图片在 `assets/samples/`（4 张，约 136 KB），可直接拖进界面。
 
