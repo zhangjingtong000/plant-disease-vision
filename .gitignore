@@ -39,3 +39,11 @@ Thumbs.db
 
 # 内部构建报告（含清理记录，不入公开提交）
 BUILD-REPORT.md
+
+# 内部报告，不入库
+FIX-REPORT.md
+FIX2-REPORT.md
+DOC-FIX-REPORT.md
+MOT-REPORT.md
+POLISH-REPORT.md
+REBUILD-REPORT.md
