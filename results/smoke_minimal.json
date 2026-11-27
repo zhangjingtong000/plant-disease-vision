@@ -1,0 +1,176 @@
+{
+ "note": "最小复现（实测）：8 类小样本冒烟，只证明链路可跑通，不是论文里的 95.67%",
+ "date": "2026-11-27",
+ "host": {
+  "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "torch": "2.6.0+cu124",
+  "python": "3.13.0"
+ },
+ "data": {
+  "source": "本机完整 PlantVillage parquet（scripts/make_smoke_subset.py 只抽样，不改源目录）",
+  "classes_with_images": 8,
+  "per_class": 40,
+  "total_images": 320,
+  "classes_in_splits": 38,
+  "crops_in_splits": 14,
+  "splits": {
+   "train": 224,
+   "val": 32,
+   "test": 64
+  },
+  "subset_seconds": 2.9,
+  "prepare_seconds": 3.1,
+  "parquet_mb": 4.7,
+  "images_disk_mb": 9.1
+ },
+ "train": {
+  "backbone": "resnet50",
+  "pretrained": "ImageNet1K_V2",
+  "num_classes": 38,
+  "params_m": 23.59,
+  "batch": 16,
+  "epochs": 3,
+  "lr": 0.0001,
+  "optimizer": "AdamW",
+  "seconds_total": 57.1,
+  "seconds_per_epoch": [
+   20.0,
+   19.1,
+   17.3
+  ],
+  "loss_first": 3.341133,
+  "loss_last": 2.212011,
+  "train_acc_first": 0.303571,
+  "train_acc_last": 0.799107,
+  "val_acc_first": 0.625,
+  "val_acc_last": 0.78125,
+  "history": [
+   {
+    "epoch": 1,
+    "train_loss": 3.341133,
+    "train_acc": 0.303571,
+    "val_loss": 3.04436,
+    "val_acc": 0.625,
+    "lr": 7.525e-05,
+    "seconds": 20.0
+   },
+   {
+    "epoch": 2,
+    "train_loss": 2.661493,
+    "train_acc": 0.705357,
+    "val_loss": 2.439691,
+    "val_acc": 0.75,
+    "lr": 2.575e-05,
+    "seconds": 19.1
+   },
+   {
+    "epoch": 3,
+    "train_loss": 2.212011,
+    "train_acc": 0.799107,
+    "val_loss": 2.155985,
+    "val_acc": 0.78125,
+    "lr": 1e-06,
+    "seconds": 17.3
+   }
+  ],
+  "ckpt": "outputs/checkpoints/resnet50_best.pth"
+ },
+ "eval": {
+  "val": {
+   "n": 32,
+   "top1": 0.78125,
+   "top3": 1.0
+  },
+  "test": {
+   "n": 64,
+   "top1": 0.84375,
+   "top3": 1.0
+  }
+ },
+ "infer": {
+  "path": "app/web.py::infer（与界面同一实现）",
+  "latency_ms_avg_warm_batch1": 11.23,
+  "samples": [
+   {
+    "file": "apple_scab.jpg",
+    "pred": "Apple__Apple_scab",
+    "conf": 0.0919,
+    "ms_single": 12.2,
+    "top3": [
+     {
+      "cls": "Apple__Apple_scab",
+      "p": 0.0919
+     },
+     {
+      "cls": "Tomato___healthy",
+      "p": 0.0805
+     },
+     {
+      "cls": "Potato___healthy",
+      "p": 0.0707
+     }
+    ]
+   },
+   {
+    "file": "corn_rust.jpg",
+    "pred": "Corn_(maize)___Common_rust_",
+    "conf": 0.1939,
+    "ms_single": 11.9,
+    "top3": [
+     {
+      "cls": "Corn_(maize)___Common_rust_",
+      "p": 0.1939
+     },
+     {
+      "cls": "Corn_(maize)___healthy",
+      "p": 0.066
+     },
+     {
+      "cls": "Potato___healthy",
+      "p": 0.0588
+     }
+    ]
+   },
+   {
+    "file": "potato_healthy.jpg",
+    "pred": "Potato___healthy",
+    "conf": 0.1123,
+    "ms_single": 11.5,
+    "top3": [
+     {
+      "cls": "Potato___healthy",
+      "p": 0.1123
+     },
+     {
+      "cls": "Apple__Apple_scab",
+      "p": 0.0693
+     },
+     {
+      "cls": "Apple___healthy",
+      "p": 0.065
+     }
+    ]
+   },
+   {
+    "file": "tomato_late_blight.jpg",
+    "pred": "Tomato___Late_blight",
+    "conf": 0.1144,
+    "ms_single": 15.5,
+    "top3": [
+     {
+      "cls": "Tomato___Late_blight",
+      "p": 0.1144
+     },
+     {
+      "cls": "Tomato___Early_blight",
+      "p": 0.0771
+     },
+     {
+      "cls": "Apple___healthy",
+      "p": 0.0645
+     }
+    ]
+   }
+  ]
+ }
+}

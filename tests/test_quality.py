@@ -18,26 +18,41 @@ sys.path.insert(0, os.path.join(BASE, "app"))
 
 import config  # noqa: E402
 import web  # noqa: E402
+import conftest as _env  # noqa: E402  （同一目录的 conftest，提供环境判据）
 
 REPORT = os.path.join(config.METRIC_DIR, "quality_report.json")
 
 
 def _sample_images(n=20):
-    paths = []
+    """按类别轮转取样，凑够 n 张为止。
+
+    完整数据集每类约 200 张，但从小子集冒烟时每类只有几十张、且只有部分类别
+    有图片；只取"每类第一张"会在 8 类的小样本上凑不到 10 张。这里跨轮取样。
+    """
+    buckets = []
     for cls in config.get_classes():
         d = os.path.join(config.IMAGES_DIR, cls)
         if not os.path.isdir(d):
             continue
-        for f in sorted(os.listdir(d)):
-            if f.lower().endswith(".jpg"):
-                paths.append(os.path.join(d, f))
-                break
-        if len(paths) >= n:
-            break
+        files = sorted(f for f in os.listdir(d) if f.lower().endswith((".jpg", ".jpeg", ".png")))
+        if files:
+            buckets.append([os.path.join(d, f) for f in files])
+
+    paths, i = [], 0
+    while len(paths) < n and any(i < len(b) for b in buckets):
+        for b in buckets:
+            if i < len(b):
+                paths.append(b[i])
+                if len(paths) >= n:
+                    break
+        i += 1
     return paths
 
 
 class TestLatency:
+    @pytest.mark.skipif(
+        not _env.ALL_BACKBONES,
+        reason=f"缺权重 {_env.MISSING_CKPTS}：跨骨干延迟对比需要三个骨干的 checkpoint")
     def test_three_backbones_latency(self):
         """三个 backbone 各测 10 次推理，取均值，写入报告。"""
         from PIL import Image
@@ -76,10 +91,15 @@ class TestThroughput:
         assert len(rows) == len(paths), f"结果数 {len(rows)} != 输入 {len(paths)}"
         print(f"  批量 {len(paths)} 张耗时 {cost:.1f}s（{cost/len(paths)*1000:.0f} ms/张）")
 
-        with io.open(REPORT, encoding="utf-8") as f:
-            rep = json.load(f)
+        # 报告由 TestLatency 写出；延迟用例被跳过（缺三骨干权重）时文件不存在，
+        # 这里新建即可——吞吐结论不该依赖另一个用例先跑过。
+        rep = {}
+        if os.path.exists(REPORT):
+            with io.open(REPORT, encoding="utf-8") as f:
+                rep = json.load(f)
         rep["batch"] = {"n": len(paths), "seconds": round(cost, 1),
                         "ms_per_img": round(cost / len(paths) * 1000, 1)}
+        os.makedirs(config.METRIC_DIR, exist_ok=True)
         with io.open(REPORT, "w", encoding="utf-8") as f:
             json.dump(rep, f, ensure_ascii=False, indent=1)
 

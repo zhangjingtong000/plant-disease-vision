@@ -67,20 +67,101 @@ plant/
 pip install -r requirements.txt
 python scripts/prepare_data.py              # parquet → 配平图片 + splits.json
 python src/train.py --model resnet50 --epochs 25
+python src/predict.py --split test          # 在测试集上算 top-1/top-3
 python src/cross_domain_protocol.py         # 跨域三种协议
 python app/web_agent.py                     # http://127.0.0.1:7860
 ```
 
-`assets/samples/` 里有几张示例图（苹果黑星病、玉米锈病、马铃薯健康、番茄晚疫病，共 4 张、256×256、约 136 KB），可直接拖进界面看效果（需先有模型权重）。没有权重时界面仍能打开，顶部会标「权重未找到」，诊断页在推理时给出缺失提示。
+`assets/samples/` 里有几张示例图（苹果黑星病、玉米锈病、马铃薯健康、番茄晚疫病，共 4 张、256×256、约 136 KB），可直接拖进界面看效果（需先有模型权重；按「最小复现（实测）」跑一遍就有）。没有权重时界面仍能打开，顶部会标「权重未找到」，诊断页在推理时给出缺失提示。
 
 Windows 用户可直接双击 `start_local.bat`，或 `pwsh ./run_all.ps1` 跑完整实验流程。打包版（嵌入式运行时）未包含在本仓库。
 
+## 最小复现（实测）
+
+上面那套命令跑的是完整实验。要回答「这台机器上这条链路通不通」，一个子集就够。
+下面是一次真实跑完的数字，原始输出在 `results/smoke_minimal.json`。
+
+**这是链路冒烟，不是 95.67%。** 8 个类别、320 张图、3 轮训练，只能说明「数据进得来、
+训得动、推得出」，不能与完整数据集上的指标并列比较。
+
+### 1. 数据：8 类 × 40 张，6 秒
+
+不需要重新下载 16 GB 的 PlantVillage。`scripts/make_smoke_subset.py` 从已有的完整
+parquet 里按类别抽样，输出格式与官方完全一致（`struct<bytes,path>` + label 索引），
+所以下一步 `prepare_data.py` 不需要任何改动：
+
+```bash
+python scripts/make_smoke_subset.py --src-parquet <完整 PlantVillage parquet 目录>   # 2.9 s
+python scripts/prepare_data.py                                                       # 3.1 s
+```
+
+| 项 | 实测值 |
+|---|---|
+| 抽样 | 8 类 × 40 张 = 320 张，parquet 4.7 MB |
+| 类别 | 8 / 38 类有图（其余 30 类的目录为空，`splits.json` 仍按 38 类写）|
+| train / val / test | 224 / 32 / 64（每类 28 / 4 / 8）|
+| 落盘 | 320 张 jpg，9.1 MB |
+
+每类总量不足 200 张时，`prepare_data.py` 会走「按 70/10/20 等比缩减」的分支。完整
+数据集永远走不到这条路径，正好在这里被验证一次。
+
+### 2. 训练：ResNet50，3 轮，57 秒
+
+```bash
+python src/train.py --model resnet50 --epochs 3 --batch 16 --workers 2
+```
+
+| 配置 | 实测值 |
+|---|---|
+| backbone / 预训练 | ResNet50 / ImageNet1K-V2，23.59 M 参数 |
+| batch / epochs / lr | 16 / 3 / 1e-4，AdamW |
+| 每轮耗时 | 20.0 / 19.1 / 17.3 s（合计 57.1 s）|
+| train_loss | **3.3411 → 2.2120** |
+| train_acc | 30.4% → 79.9% |
+| val_acc | 62.5% → 78.1% |
+
+loss 三轮单调下降，权重写到 `outputs/checkpoints/resnet50_best.pth`（90.3 MB）。
+
+### 3. 推理：4 张示例图 top-1 全对，约 11 ms/张
+
+`src/predict.py` 调的是界面（`app/web.py::infer`）的同一条推理路径，不是另写一套：
+
+| 示例图 | 预测 | 置信度 |
+|---|---|---|
+| `apple_scab.jpg` | Apple / Apple scab | 9.19% |
+| `corn_rust.jpg` | Corn (maize) / Common rust | 19.39% |
+| `potato_healthy.jpg` | Potato / healthy | 11.23% |
+| `tomato_late_blight.jpg` | Tomato / Late blight | 11.44% |
+
+4 张 top-1 全部命中，但置信度只有 9%–19%：3 轮、320 张的模型在 38 类 softmax 上本来
+就是这个量级，界面会把低于阈值的判为「建议人工复核」，这是预期行为。在完整划分上：
+test 64 张 top-1 84.4% / top-3 100%，val 32 张 78.1% / 100%。
+
+```bash
+python src/predict.py                # 4 张示例图 + Top-3 + 单张耗时
+python src/predict.py --split test   # 在 splits.json 的测试集上算 top-1 / top-3
+```
+
+预热后单张 11.2 ms（batch=1，3 组各 20 次取中位；同一张图重复测量在 11–16 ms 之间波动）。
+这和 `results/benchmark.json` 里完整权重上的 9.16 ms 不是一个口径：那边是三个骨干在
+完整训练权重上的正式测量，这里是 3 轮小模型的链路验证，量级一致即说明链路通。
+
+### 4. 测试
+
+接入数据后 `python -m pytest -q` 从 6 passed 变成 **35 passed, 3 skipped**。
+`tests/conftest.py` 按环境分三档判断：有没有数据、数据够不够完整（是否每类都有图）、
+界面能不能起（7860 有服务 + 系统装了 Chrome）。只有需要「每类都有图 + 三骨干都有权重」
+的用例在冒烟子集上跳过，其余照常跑；三个 skip 分别是全类目录完整性、三骨干延迟对比、
+跨骨干降级。新增的 `tests/test_smoke_data.py` 专门验证子集链路：划分比例、无跨划分泄漏、
+记录指向真实文件、checkpoint 能推出合法 Top-5。
+
 ## 数据与证据
 
-`results/` 下是本仓库引用的全部实验数字的原始输出（共 5 KB，均为实测 JSON）：
+`results/` 下是本仓库引用的全部实验数字的原始输出（共 8 KB，均为实测 JSON）：
 
 | 文件 | 内容 |
 |---|---|
+| `results/smoke_minimal.json` | 最小复现实测：8 类 320 张、训练 3 轮 loss 3.3411→2.2120、test top-1 0.8438、推理 4 张全对、单张 11.2 ms |
 | `results/cross_domain_diag.json` | 跨域诊断：`acc_strict=0.1229`、`acc_fold=0.3898`、Wilson CI [0.3298, 0.4533]、risk–coverage |
 | `results/cross_domain_protocol.json` | 两种评估协议对比：`acc_restrict` 与 `acc_fold` 完全相等，即 236 个样本上 1:1 映射等价 |
 | `results/cross_domain_resnet50.json` | ResNet50 在 PlantDoc 上的逐类准确率与域内准确率 0.9567 |
@@ -97,7 +178,7 @@ Windows 用户可直接双击 `start_local.bat`，或 `pwsh ./run_all.ps1` 跑�
 - **类别空间是 127 类 / 28 作物**，之外的病害无法识别（会走「超出范围 / 未收录」提示）。PlantVillage 原版只有 38 类 / 14 作物，那是更早的版本，本文按当前 127 类写。
 - 自动化测试覆盖规则、端到端、质量属性与恢复性（`tests/`）。训练链路有 1-step CPU smoke test（`python -m pytest tests/test_train_smoke.py -q`）：用 `assets/samples/` 的示例图 + 随机初始化权重走一遍 forward → backward → `optimizer.step`，断言 loss 是有限数、参数有梯度、权重被更新，不读数据集、不读 checkpoint、不需要 GPU。完整训练与跨域实验仍需 GPU 与数据集，只能按脚本手动复现。
 
-  **没有数据时**，`python -m pytest -q` 是 **6 passed**：`tests/conftest.py` 会在缺 `data/splits.json` 时跳过 `test_rules / test_quality / test_recovery / test_e2e` 四个依赖真实图片与界面的文件，并在 pytest 头部打印跳过清单。按「快速开始」生成数据后，它们自动恢复，不需要改代码。缺数据直接启动界面会在 import 之后、`launch()` 之前明确报错退出，不会抛裸 traceback。
+  **没有数据时**，`python -m pytest -q` 是 **6 passed**：`tests/conftest.py` 会在缺 `data/splits.json` 时跳过 `test_rules / test_quality / test_recovery / test_smoke_data / test_e2e` 五个依赖真实图片、数据规模与界面的文件。按「快速开始」生成完整数据后它们自动恢复；只接入小样本子集时是 **35 passed, 3 skipped**，跳过的三个用例分别要求「每类都有图」「三骨干都有权重」。筛选逻辑全在 `tests/conftest.py`，不需要改代码。缺数据直接启动界面会在 import 之后、`launch()` 之前明确报错退出，不会抛裸 traceback。
 - PlantDoc 测试集仅 236 张，置信区间较宽；且只覆盖一个目标域。
 
 ## 技术栈

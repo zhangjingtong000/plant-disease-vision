@@ -16,10 +16,14 @@ sys.path.insert(0, os.path.join(BASE, "app"))
 import config  # noqa: E402
 import knowledge  # noqa: E402
 import ai_qa  # noqa: E402
+import conftest as _env  # noqa: E402  （同一目录的 conftest，提供环境判据）
 
 
 # ============ 1. 数据完整性 ============
 class TestDataIntegrity:
+    @pytest.mark.skipif(
+        not _env.FULL_DATASET,
+        reason="当前数据是小子集冒烟（不是每类都有图片），该断言针对完整配平数据集")
     def test_splits_classes_match_images(self):
         """每个类别目录必须存在且有图片。"""
         sp = config.load_splits()

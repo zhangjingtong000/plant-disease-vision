@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(BASE, "app"))
 
 import config  # noqa: E402
 import web  # noqa: E402
+import conftest as _env  # noqa: E402  （同一目录的 conftest，提供环境判据）
 
 HIST = web.HISTORY_CSV
 
@@ -117,6 +118,9 @@ class TestModelRecovery:
             cache.clear()
             cache.update(saved)
 
+    @pytest.mark.skipif(
+        not _env.ALL_BACKBONES,
+        reason=f"缺权重 {_env.MISSING_CKPTS}：该用例要验证非主模型加载失败时的降级")
     def test_mismatched_weight_falls_back(self):
         """权重类别数不匹配时，非主模型应降级而不是崩溃。"""
         cache = web._MODEL_CACHE
