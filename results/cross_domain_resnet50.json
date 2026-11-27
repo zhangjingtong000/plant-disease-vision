@@ -1,0 +1,118 @@
+{
+ "tag": "resnet50",
+ "external_dataset": "PlantDoc test",
+ "n_samples": 236,
+ "accuracy": 0.1228813559322034,
+ "in_domain_accuracy": 0.9566787003610109,
+ "per_class": {
+  "Apple__Apple_scab": {
+   "n": 10,
+   "acc": 0.2
+  },
+  "Apple__Cedar_apple_rust": {
+   "n": 10,
+   "acc": 0.0
+  },
+  "Apple___healthy": {
+   "n": 9,
+   "acc": 0.1111111111111111
+  },
+  "Blueberry___healthy": {
+   "n": 11,
+   "acc": 0.0
+  },
+  "Cherry_(including_sour)___healthy": {
+   "n": 10,
+   "acc": 0.0
+  },
+  "Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot": {
+   "n": 4,
+   "acc": 0.5
+  },
+  "Corn_(maize)___Common_rust_": {
+   "n": 10,
+   "acc": 0.3
+  },
+  "Corn_(maize)___Northern_Leaf_Blight": {
+   "n": 12,
+   "acc": 0.3333333333333333
+  },
+  "Grape___Black_rot": {
+   "n": 8,
+   "acc": 0.0
+  },
+  "Grape___healthy": {
+   "n": 12,
+   "acc": 0.3333333333333333
+  },
+  "Peach___healthy": {
+   "n": 9,
+   "acc": 0.0
+  },
+  "Pepper,_bell___Bacterial_spot": {
+   "n": 9,
+   "acc": 0.2222222222222222
+  },
+  "Pepper,_bell___healthy": {
+   "n": 8,
+   "acc": 0.125
+  },
+  "Potato___Early_blight": {
+   "n": 8,
+   "acc": 0.125
+  },
+  "Potato___Late_blight": {
+   "n": 8,
+   "acc": 0.25
+  },
+  "Raspberry___healthy": {
+   "n": 7,
+   "acc": 0.14285714285714285
+  },
+  "Soybean___healthy": {
+   "n": 8,
+   "acc": 0.0
+  },
+  "Squash___Powdery_mildew": {
+   "n": 6,
+   "acc": 0.16666666666666666
+  },
+  "Strawberry___healthy": {
+   "n": 8,
+   "acc": 0.0
+  },
+  "Tomato___Bacterial_spot": {
+   "n": 9,
+   "acc": 0.0
+  },
+  "Tomato___Early_blight": {
+   "n": 9,
+   "acc": 0.1111111111111111
+  },
+  "Tomato___Late_blight": {
+   "n": 10,
+   "acc": 0.1
+  },
+  "Tomato___Leaf_Mold": {
+   "n": 6,
+   "acc": 0.0
+  },
+  "Tomato___Septoria_leaf_spot": {
+   "n": 11,
+   "acc": 0.2727272727272727
+  },
+  "Tomato___Tomato_Yellow_Leaf_Curl_Virus": {
+   "n": 6,
+   "acc": 0.0
+  },
+  "Tomato___Tomato_mosaic_virus": {
+   "n": 10,
+   "acc": 0.0
+  },
+  "Tomato___healthy": {
+   "n": 8,
+   "acc": 0.0
+  }
+ },
+ "correct": 29
+}

@@ -71,6 +71,20 @@ python app/web_agent.py                     # http://127.0.0.1:7860
 
 Windows 用户可直接双击 `start_local.bat`，或 `pwsh ./run_all.ps1` 跑完整实验流程。打包版（嵌入式运行时）未包含在本仓库。
 
+## 数据与证据
+
+`results/` 下是本仓库引用的全部实验数字的原始输出（共 5 KB，均为实测 JSON）：
+
+| 文件 | 内容 |
+|---|---|
+| `results/cross_domain_diag.json` | 跨域诊断：`acc_strict=0.1229`、`acc_fold=0.3898`、Wilson CI [0.3298, 0.4533]、risk–coverage |
+| `results/cross_domain_protocol.json` | 两种评估协议对比：`acc_restrict` 与 `acc_fold` 完全相等，即 236 个样本上 1:1 映射等价 |
+| `results/cross_domain_resnet50.json` | ResNet50 在 PlantDoc 上的逐类准确率与域内准确率 0.9567 |
+| `results/benchmark.json` | 三种骨干在 RTX 4060 上的延迟/吞吐/模型体积 |
+| `results/domain_classifier.json` | 域判别器准确率 0.9481（5 折 CV） |
+
+训练数据与权重不在仓库中，获取方式见「快速开始」。
+
 ## 已知限制
 
 - **本地 LLM 路线未闭环**：`assets/llm/qwen3-4b-instruct/` 是 0 字节权重残留，生成层实际走「检索降级」或外部 API。

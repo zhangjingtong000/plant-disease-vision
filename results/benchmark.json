@@ -1,0 +1,32 @@
+{
+ "device": "cuda",
+ "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+ "torch": "2.6.0+cu124",
+ "timestamp": "2026-11-16 14:45:52",
+ "models": {
+  "resnet50": {
+   "params_m": 23.77,
+   "flops_g": 4.13,
+   "model_size_mb": 91,
+   "latency_ms": 9.16,
+   "throughput_img_s": 109.2,
+   "cpu_latency_ms": 119.05
+  },
+  "efficientnet_b0": {
+   "params_m": 4.17,
+   "flops_g": 0.41,
+   "model_size_mb": 16.2,
+   "latency_ms": 12.5,
+   "throughput_img_s": 80.0,
+   "cpu_latency_ms": 77.47
+  },
+  "mobilenet_v3_large": {
+   "params_m": 4.36,
+   "flops_g": 0.23,
+   "model_size_mb": 16.5,
+   "latency_ms": 10.06,
+   "throughput_img_s": 99.5,
+   "cpu_latency_ms": 67.12
+  }
+ }
+}
