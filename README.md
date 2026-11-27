@@ -96,6 +96,8 @@ Windows 用户可直接双击 `start_local.bat`，或 `pwsh ./run_all.ps1` 跑�
 - `knowledge_kg.py` 是自动生成的数据字典，不是手写逻辑；仓库共 46 个 Python 文件、62,360 行，其中真实逻辑（训练/评估/跨域/检索/前端）约 1.4 万行。
 - **类别空间是 127 类 / 28 作物**，之外的病害无法识别（会走「超出范围 / 未收录」提示）。PlantVillage 原版只有 38 类 / 14 作物，那是更早的版本，本文按当前 127 类写。
 - 自动化测试覆盖规则、端到端、质量属性与恢复性（`tests/`）。训练链路有 1-step CPU smoke test（`python -m pytest tests/test_train_smoke.py -q`）：用 `assets/samples/` 的示例图 + 随机初始化权重走一遍 forward → backward → `optimizer.step`，断言 loss 是有限数、参数有梯度、权重被更新，不读数据集、不读 checkpoint、不需要 GPU。完整训练与跨域实验仍需 GPU 与数据集，只能按脚本手动复现。
+
+  **没有数据时**，`python -m pytest -q` 是 **6 passed**：`tests/conftest.py` 会在缺 `data/splits.json` 时跳过 `test_rules / test_quality / test_recovery / test_e2e` 四个依赖真实图片与界面的文件，并在 pytest 头部打印跳过清单。按「快速开始」生成数据后，它们自动恢复，不需要改代码。缺数据直接启动界面会在 import 之后、`launch()` 之前明确报错退出，不会抛裸 traceback。
 - PlantDoc 测试集仅 236 张，置信区间较宽；且只覆盖一个目标域。
 
 ## 技术栈

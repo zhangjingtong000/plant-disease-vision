@@ -5771,6 +5771,7 @@ def _warmup():
 
 
 if __name__ == "__main__":
+    web.preflight_or_exit()   # 缺数据在此明确退出；import web 不会
     _warmup()
     demo = build_ui()
     demo.launch(

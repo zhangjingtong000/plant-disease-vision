@@ -40,16 +40,26 @@ plt.rcParams["axes.unicode_minus"] = False
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 启动前置检查：缺数据给明确提示并退出；缺权重只告警（不伪造权重）
+# 注意：放在函数里而不是模块顶层——这样 import web 只做依赖检查，不会在
+# pytest 收集阶段被 SystemExit 带崩。真正的启动入口（app/web_agent.py）负责调用。
 import preflight  # noqa: E402  （src/ 已在 sys.path 上）
 
-_blocking, _preflight_msgs = preflight.check(
-    config.DATA_DIR, config.CKPT_DIR, config.BACKBONES)
-for _msg in _preflight_msgs:
-    print(_msg, file=sys.stderr, flush=True)
-if _blocking:
-    raise SystemExit(2)
 
-CLASSES = config.get_classes()
+def preflight_or_exit(exit_code: int = 2) -> bool:
+    """缺数据时打印提示并以 exit_code 退出；缺权重只告警。返回是否通过。"""
+    blocking, msgs = preflight.check(
+        config.DATA_DIR, config.CKPT_DIR, config.BACKBONES)
+    for msg in msgs:
+        print(msg, file=sys.stderr, flush=True)
+    if blocking:
+        raise SystemExit(exit_code)
+    return True
+
+
+try:
+    CLASSES = config.get_classes()
+except Exception:  # 缺 data/splits.json 时不阻塞 import，界面启动前会再检查
+    CLASSES = []
 HISTORY_CSV = os.path.join(config.OUTPUT_DIR, "history.csv")
 HISTORY_IMG_DIR = os.path.join(config.OUTPUT_DIR, "history_img")
 
