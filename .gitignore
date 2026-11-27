@@ -1,0 +1,41 @@
+# ---------- 数据与产物：体积大，不入库 ----------
+data/
+outputs/
+release/
+baseline_output/
+hfcache/
+gradio/
+filelist.json
+selection.json
+jieba.cache
+
+# ---------- 模型权重与向量模型 ----------
+assets/llm/
+assets/embedding/
+*.pt
+*.pth
+*.onnx
+*.pkl
+
+# ---------- 文档/压缩包（报告类文件不入库） ----------
+*.docx
+*.pdf
+*.zip
+*.rar
+*.7z
+
+# ---------- Python ----------
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# ---------- 其它 ----------
+*.log
+.DS_Store
+Thumbs.db
+
+# 内部构建报告（含清理记录，不入公开提交）
+BUILD-REPORT.md

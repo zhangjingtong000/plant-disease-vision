@@ -1,0 +1,27 @@
+# 依赖清单
+# 安装：
+#   pip install -r requirements.txt
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+
+# ---------- 深度学习 ----------
+torch>=2.6.0
+torchvision>=0.21.0
+numpy
+pillow
+matplotlib
+scikit-learn
+opencv-python
+pandas
+pyarrow
+thop
+
+# ---------- Web 界面 ----------
+gradio>=6.0
+
+# ---------- 检索与生成 ----------
+jieba
+rank-bm25
+transformers
+openai
+reportlab
+requests
