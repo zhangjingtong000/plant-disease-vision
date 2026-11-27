@@ -95,7 +95,7 @@ Windows 用户可直接双击 `start_local.bat`，或 `pwsh ./run_all.ps1` 跑�
 - **无权重时界面照常启动**：顶部会标「权重未找到」，单张诊断 / 病斑定位 / 批量诊断在推理时提示缺少权重（`resnet50_best.pth` 等）。缺 `data/splits.json` 时启动会直接给出放置说明并退出（码 2），不再是裸 traceback；检查逻辑在 `src/preflight.py`，不生成也不伪造任何权重或数据。
 - `knowledge_kg.py` 是自动生成的数据字典，不是手写逻辑；仓库共 46 个 Python 文件、62,360 行，其中真实逻辑（训练/评估/跨域/检索/前端）约 1.4 万行。
 - **类别空间是 127 类 / 28 作物**，之外的病害无法识别（会走「超出范围 / 未收录」提示）。PlantVillage 原版只有 38 类 / 14 作物，那是更早的版本，本文按当前 127 类写。
-- 自动化测试覆盖规则、端到端、质量属性与恢复性（`tests/`），但训练与跨域实验没有自动化单测——它们依赖数据集和 GPU，只能按脚本手动复现。
+- 自动化测试覆盖规则、端到端、质量属性与恢复性（`tests/`）。训练链路有 1-step CPU smoke test（`python -m pytest tests/test_train_smoke.py -q`）：用 `assets/samples/` 的示例图 + 随机初始化权重走一遍 forward → backward → `optimizer.step`，断言 loss 是有限数、参数有梯度、权重被更新，不读数据集、不读 checkpoint、不需要 GPU。完整训练与跨域实验仍需 GPU 与数据集，只能按脚本手动复现。
 - PlantDoc 测试集仅 236 张，置信区间较宽；且只覆盖一个目标域。
 
 ## 技术栈
