@@ -38,6 +38,17 @@ plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Arial Unicode M
 plt.rcParams["axes.unicode_minus"] = False
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# 启动前置检查：缺数据给明确提示并退出；缺权重只告警（不伪造权重）
+import preflight  # noqa: E402  （src/ 已在 sys.path 上）
+
+_blocking, _preflight_msgs = preflight.check(
+    config.DATA_DIR, config.CKPT_DIR, config.BACKBONES)
+for _msg in _preflight_msgs:
+    print(_msg, file=sys.stderr, flush=True)
+if _blocking:
+    raise SystemExit(2)
+
 CLASSES = config.get_classes()
 HISTORY_CSV = os.path.join(config.OUTPUT_DIR, "history.csv")
 HISTORY_IMG_DIR = os.path.join(config.OUTPUT_DIR, "history_img")

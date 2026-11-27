@@ -20,7 +20,7 @@
 
 | 设置 | 准确率 | 说明 |
 |---|---|---|
-| 同分布测试集，类均衡 4,986 张 | **95.67%** | Top-3 99.28%，RTX 4060 单张 9.2 ms |
+| 同分布测试集，类均衡 4,986 张 | **95.67%** | Top-3 99.28%，RTX 4060 单张 9.16 ms（`results/benchmark.json`） |
 | PlantDoc 零样本 | **12.29%** | 不接触目标域任何数据 |
 | PlantDoc 折叠协议 | **38.98%** | Wilson 95% CI [33.0, 45.3]，n=236 |
 | AdaBN 单轮 | 16.53% | 无监督，只用无标签图重估 BN |
@@ -50,7 +50,9 @@ plant/
 │   ├── images/<类别>/            prepare_data.py 生成的配平图片
 │   ├── splits.json               类别名、作物映射、样本清单
 │   └── plantdoc_extract/PlantDoc-Dataset-master/test/   PlantDoc 测试图
-├── assets/embedding/bge-small-zh-v1.5/                  检索向量模型
+├── assets/
+│   ├── samples/                  4 张示例叶片图（仓库自带，可直接拖进界面）
+│   └── embedding/bge-small-zh-v1.5/                     检索向量模型
 └── outputs/checkpoints/                                  训练产物
 ```
 
@@ -69,6 +71,8 @@ python src/cross_domain_protocol.py         # 跨域三种协议
 python app/web_agent.py                     # http://127.0.0.1:7860
 ```
 
+`assets/samples/` 里有几张示例图（苹果黑星病、玉米锈病、马铃薯健康、番茄晚疫病，共 4 张、256×256、约 136 KB），可直接拖进界面看效果（需先有模型权重）。没有权重时界面仍能打开，顶部会标「权重未找到」，诊断页在推理时给出缺失提示。
+
 Windows 用户可直接双击 `start_local.bat`，或 `pwsh ./run_all.ps1` 跑完整实验流程。打包版（嵌入式运行时）未包含在本仓库。
 
 ## 数据与证据
@@ -80,17 +84,17 @@ Windows 用户可直接双击 `start_local.bat`，或 `pwsh ./run_all.ps1` 跑�
 | `results/cross_domain_diag.json` | 跨域诊断：`acc_strict=0.1229`、`acc_fold=0.3898`、Wilson CI [0.3298, 0.4533]、risk–coverage |
 | `results/cross_domain_protocol.json` | 两种评估协议对比：`acc_restrict` 与 `acc_fold` 完全相等，即 236 个样本上 1:1 映射等价 |
 | `results/cross_domain_resnet50.json` | ResNet50 在 PlantDoc 上的逐类准确率与域内准确率 0.9567 |
-| `results/benchmark.json` | 三种骨干在 RTX 4060 上的延迟/吞吐/模型体积 |
+| `results/benchmark.json` | 三种骨干在 RTX 4060 上的延迟/吞吐/模型体积（**延迟/吞吐的唯一口径**：ResNet50 9.16 ms、EfficientNet-B0 12.5 ms、MobileNetV3-Large 10.06 ms） |
 | `results/domain_classifier.json` | 域判别器准确率 0.9481（5 折 CV） |
 
-训练数据与权重不在仓库中，获取方式见「快速开始」。
+训练数据与权重不在仓库中，获取方式见「快速开始」。示例图片在 `assets/samples/`（4 张，约 136 KB），可直接拖进界面。
 
 ## 已知限制
 
-- **本地 LLM 路线未闭环**：`assets/llm/qwen3-4b-instruct/` 是 0 字节权重残留，生成层实际走「检索降级」或外部 API。
-- 生成层是可选项，不承诺离线大模型的回答质量。
-- `knowledge_kg.py` 是自动生成的数据字典，不是手写逻辑；仓库共 44 个 Python 文件、62,215 行，其中真实逻辑（训练/评估/跨域/检索/前端）约 1.4 万行。
-- 类别空间为 127 类 / 28 作物，之外的病害无法识别（早期版本只有 PlantVillage 的 38 类、14 作物，原说明未更新）。
+- **生成层需外部 API 或自行放置模型权重**：本仓库不附带任何大模型权重（`assets/llm/` 不入库）。没有 API Key 时问答走「检索原文直出」的降级路径，仍然可用；要接本地大模型，自行把权重放进 `assets/llm/<模型名>/`，并在 `src/ai_qa.py` 里指过去。生成层是可选项，不承诺离线大模型的回答质量。
+- **无权重时界面照常启动**：顶部会标「权重未找到」，单张诊断 / 病斑定位 / 批量诊断在推理时提示缺少权重（`resnet50_best.pth` 等）。缺 `data/splits.json` 时启动会直接给出放置说明并退出（码 2），不再是裸 traceback；检查逻辑在 `src/preflight.py`，不生成也不伪造任何权重或数据。
+- `knowledge_kg.py` 是自动生成的数据字典，不是手写逻辑；仓库共 46 个 Python 文件、62,360 行，其中真实逻辑（训练/评估/跨域/检索/前端）约 1.4 万行。
+- **类别空间是 127 类 / 28 作物**，之外的病害无法识别（会走「超出范围 / 未收录」提示）。PlantVillage 原版只有 38 类 / 14 作物，那是更早的版本，本文按当前 127 类写。
 - 自动化测试覆盖规则、端到端、质量属性与恢复性（`tests/`），但训练与跨域实验没有自动化单测——它们依赖数据集和 GPU，只能按脚本手动复现。
 - PlantDoc 测试集仅 236 张，置信区间较宽；且只覆盖一个目标域。
 
