@@ -1,284 +1,160 @@
-# 作物叶片病害识别与本地检索问答
+# 作物叶片病害识别
 
-> **分类器在 PlantVillage 上 95.67%（265/277），到真实田间只有 12.29%。**
-> 本仓库的重点不是再训一个分类器，而是把这个落差量化出来，并给出可验证的补救链。
+作物叶片病害识别、跨域落差量化、本地知识问答。从训练、评估到 Gradio 界面都在这个仓库里。
 
-一句话：作物叶片病害识别 + 本地检索问答；技术重心是**跨域泛化的量化、评估协议修正与补救**。
+![界面首页](docs/screenshots/01-home.png)
 
----
+![智能诊断](docs/screenshots/02-diagnose.png)
 
-## 我做了什么
+*番茄晚疫病示例图的置信度 11.44%，低于 60% 的拒识阈值，系统判「无法确定」并保留 Top-5 候选。*
 
-把 PlantVillage 分类器刷到 95.67%（265/277）不难，难的是它换到真实照片上会掉到 12.29%。这个项目做了四件事：
+## 它做什么
 
-1. **把落差称出来**：实验室白底数据训练，直接测互联网真实场景的 PlantDoc，零样本 12.29%。
-2. **把评估协议讲清楚**：初版拿全类 argmax 对 PlantDoc 标签，会系统性低估；改成按 1:1 映射把概率折叠到 27 类再 argmax，得 38.98%（Wilson 95% CI [33.0, 45.3]）。同时论证「受限协议」（只在 27 个候选类里取 argmax）与「折叠协议」在 1:1 映射下**数学等价**——实测 236 个样本上两者预测差异为 **0**，因此只报一个数，拒绝把同一个数当两个结果展示。
-3. **把不确定性变成可用信号**：补 risk–coverage 曲线；做多模型一致性分层——分组内结论一致时准确率 65%（n=80），不一致时只有 25.6%（n=156），一致性本身就是廉价的拒识器。
-4. **给补救链，而不是只报坏消息**：AdaBN（只重估 BN 统计量，不动权重）、域随机化（按偏移谱把尺度增强当主力）、混合域微调（用目标域少量标注）。三条补救路径的脚本都在 `src/` 里，但它们的度量产物**未随仓库提供**（`outputs/metrics/` 只有质量报告与一次训练记录），所以本 README 不报这三步的准确率。
+ResNet50 在 PlantVillage 上训练，同分布测试集 95.67%（265/277）。同一份权重不做任何适配，拿去测互联网真实照片 PlantDoc，零样本 12.29%（29/236）；把 38 类概率按 1:1 映射折叠到 PlantDoc 的 27 类再取 argmax，是 38.98%（92/236，Wilson 95% CI 33.0–45.3）。
 
-## 跨域实验（核心）
+落差本身就值得写下来：模型没有过拟合训练集，它拟合的是实验室的拍摄方式。受控偏移谱把主因定位到目标尺度，背景颜色不是主因。仓库把这件事拆成评估协议、风险—覆盖曲线、一致性分层和域偏移诊断，再补上 AdaBN、域随机化、混合域微调三条补救脚本。
 
-| 设置 | 准确率 | 说明 |
-|---|---|---|
-| 同分布测试集 | **95.67%**（265/277） | n=277，评测集是生成该产物那次 `data/splits.json` 的 test 划分；划分与原始 `eval_resnet50.json` 都未随仓库提供。见下「三个分母」 |
-| PlantDoc 零样本 | **12.29%** | 不接触目标域任何数据；出处 `results/cross_domain_diag.json`（`correct 29 / n 236`） |
-| PlantDoc 折叠协议 | **38.98%** | Wilson 95% CI [33.0, 45.3]，n=236；出处同上（`acc_fold`、`ci_low`/`ci_high`） |
-| AdaBN 单轮 | — | 脚本 `src/bn_adapt.py` 可跑，度量产物未随仓库提供，不报数字 |
-| 混合域微调 | — | 脚本 `src/mixed_finetune.py` 可跑，度量产物未随仓库提供，不报数字 |
-
-RTX 4060 上 ResNet50 单张 9.16 ms 的出处是 `results/benchmark.json` 的 `latency_ms`，**但该文件量的是旧的 127 类模型**：23.77 M 与 4.17 M 比当前 38 类的 23.59 M / 4.06 M 多出的 182,361 / 114,009 个参数，正好等于分类头从 38 类换到 127 类的差值（ResNet50：2048×89+89；EfficientNet-B0 与 MobileNetV3：1280×89+89）。所以 9.16 ms / 109.2 张/s 只能读作「同代骨干在 RTX 4060 上的量级」，**不是当前 38 类流水线的性能口径**；38 类冒烟模型实测 11.2 ms/张（见「最小复现」）。Top-3 指标不在该文件里，本 README 不再报同分布集上的 Top-3。AdaBN 与混合域微调的产物路径是 `outputs/metrics/bn_adapt_*.json` 与 `outputs/metrics/mixed_*.json`，仓库里没有这两个文件——原始实验数据未随仓库提供，需要 GPU 与目标域标注自行补跑。
-
-12.29% / 38.98% / Wilson 区间 / n=236 可由 `results/` 直接复算：29/236=12.29%、92/236=38.98%，CI 用 Wilson 公式代入 p=92/236、n=236、z=1.96 得 [0.3298, 0.4533]。95.67% 的 265/277 复算不出来——它的原始 `eval_resnet50.json` 不在仓库里。
-
-**三个「同分布准确率」不是同一个评测集，不能互相替换。** README 只把 95.67% 当主口径，另外两个出现在产物里，一并说明它们各自是什么：
-
-| 数字 | 分数 | 分母（评测集） | 出处 |
-|---|---|---|---|
-| **95.67%** | 265/277 | 生成 `cross_domain_resnet50.json` 那次评估所用 `splits.json` 的 test 划分，277 张；该划分未随仓库提供 | `results/cross_domain_resnet50.json` 的 `in_domain_accuracy`（原值 0.9566787 = 265/277） |
-| 98.52% | 1064/1080 | 同分布 test 里**能映射到 PlantDoc 27 类**的子集，只用于和域 B 做置信度/准确率对照 | `results/cross_domain_diag.json` 的 `acc_A_subset`（`n_A=1080`） |
-| 98.61% | 1490/1511 | 完整 PlantVillage 配平划分（70/10/20 = 5286/755/1511）的 test；全量划分未随仓库提供 | 旧版 `docs/实验记录.md`（已重写）曾写的口径，无法从仓库复算，只作分母对照 |
-
-仓库里当前的 `data/splits.json` 是「最小复现」用的 8 类冒烟划分（test=64 张），上面三个分母都不是它。
-
-- **样本量先声明**：PlantDoc 测试集只有 236 张，且只覆盖一个目标域（互联网真实场景）。
-  38.98% 的 Wilson 95% CI 是 [33.0, 45.3]，宽约 12 个百分点；所以跨域数字应当读作量级与
-  方向，不是精确点估计。本仓库所有跨域结论都在这个样本量条件下报告。
-- **协议等价性**：全类 → PlantDoc 27 类的映射是 1:1（不存在多个源类并到同一目标类）。此时「折叠后取 argmax」与「只在可映射类中取最大概率」必然给出同一预测；实测 236 张里差异数 0。所以报告里只有两种协议（严格 / 折叠），不把受限协议单列成一个「更好的结果」。
-- **risk–coverage**：按置信度排序、只回答最有把握的部分，覆盖率下降时准确率上升——低置信度可以安全弃答，而不是硬报。
-- **一致性分层**：一致组 65%（n=80）vs 不一致组 25.6%（n=156），出处 `results/cross_domain_diag.json` 的 `consistency`。无需额外训练，骨干之间的分歧就能当拒识信号。注意 JSON 里的键名写作「三模型一致」，而 `src/cross_domain_diag.py` 在参与模型数 ≥2 时即按一致性分组，产物本身不记录模型名单——所以这里只把它读作「多模型一致性分层」，不要当成「恰好三个骨干」的证据。
-- **偏移谱**：对同分布测试图逐级施加背景、光照、模糊、目标缩小、旋转透视偏移，定位主因是**目标尺度**而非背景颜色（`src/offset_spectrum.py`）。
-- **复现命令**：`python src/cross_domain_protocol.py`（三种协议）、`cross_domain_diag.py`（诊断图）、`bn_adapt.py`、`domain_rand_train.py`、`mixed_finetune.py`。后三个补救脚本需要 GPU 与目标域数据，产物不在本仓库内。
-
-## 系统组成
-
-- **单文件 Gradio，五个页签**（`app/web_agent.py`，5,865 行）：智能诊断 / 批量诊断 / 模型评估 / 知识问答 / 更多。其中「病斑定位」不是页签，是智能诊断页右栏的一个面板（`app/web_agent.py:5213`），批量诊断的详情区也有同类面板；「模型评估」页下再分同分布指标 / 评估图表 / 三模型对比 / 跨域泛化 / 数据资产五个子页签。
-- **检索层**（`src/ai_qa.py`，1,366 行）：本地 bge-small-zh 向量 + jieba/BM25 混合召回；离域检测（作物白名单 + 别名剔除的规则实现，不是分类器）。作物名识别不出来、但问题里点了「<作物><病害>」时（如「竹子叶枯病」），按「超出范围」回答，不会用库里的同名病害条目硬套。
-- **意图分类**：`src/intent_model/` 下有训练样本（450 条 / 5 类：occurrence 101、control 136、symptom 94、compare 86、system 33）、训练脚本 `train_intent_clf.py` 和**产物 `intent_clf.pkl`（34 KB，随仓库提供）**。分类器是「bge 句向量 + StandardScaler + 逻辑回归」，5 折交叉验证准确率 **0.9711 ± 0.0166**（这个数字可以从 pkl 的 `meta` 里直接读到，也可以重跑脚本复现）。运行时还缺一样东西：bge-small-zh-v1.5 模型本体（`assets/embedding/`，不随仓库提供）——模型缺失时 `_load_intent_clf()` 直接返回 None，自动回退到关键词规则，问答仍然可用。这里只认本地目录，不会退回 HuggingFace 模型 ID 去联网下载：断网环境下 `pytest -q` 不会被下载重试拖慢。重训：
-
-  ```bash
-  python src/intent_model/train_intent_clf.py \
-      --model assets/embedding/bge-small-zh-v1.5 \
-      --out src/intent_model/intent_clf.pkl
-  ```
-- **降级设计**：检索必有、生成可选。没有 API Key 或断网时直接返回检索到的知识原文，问答仍然可用，而不是报错。
-- **知识库**（实测口径，见下「能力范围」）：`src/knowledge_kg.py` 42,489 行，是自动生成的数据字典（CropDP-KG 2,536 条 / 61 作物）。
-
-## 能力范围
-
-知识条目数以 `src/knowledge.py` 合并后的实测值为准（可以自己导入模块数一遍）：
-
-| 口径 | 条目数 | 作物数 | 说明 |
-|---|---|---|---|
-| `KNOWLEDGE`（精编库） | 132 | 28 | 其中 24 条是「健康」类（另有 2 条为「健康果实」「健康叶片」），非病害条目 |
-| `KG_KNOWLEDGE`（CropDP-KG 扩充字典） | 2,536 | 61 | `src/knowledge_kg.py` 自动生成，来源 `data/cropdpkg/` 不随仓库提供 |
-| `ALL_KNOWLEDGE`（合并后实际使用） | 2,645 | 66 | 检索问答走这一层 |
-
-- **不硬套答案**：上表条目空间之外的病害不硬套答案，走「超出范围 / 未收录」提示，而不是用最接近的类糊一个结论。
-- PlantVillage 原版是 38 类 / 14 作物（`data/splits.json` 的 `classes` 为 38、作物映射 14 个）。分类模型按 38 类训练、知识问答按上表条目覆盖，两者刻意不强行对齐：知识层比分类层宽，用来回答「这是什么病、怎么防」，而不只是「这张图属于哪一类」。
-- 早先版本写的「127 类 / 28 作物」在精编库（132 条）和合并库（2,645 条）两个口径上都对不上，已按实测值改正。
-
-## 代码结构
-
-`app/`（Gradio 界面）→ `src/`（训练、评估、跨域实验、检索、知识库）→ `scripts/`（数据准备与抽样）→ `tests/` → `results/`（引用的全部实测 JSON）→ `docs/`（实验记录）→ `assets/`（示例图，以及不随仓库提供的检索向量模型目录）。
-
-共 53 个 Python 文件、63,411 行（含空行）。这个总数会被自动生成的数据字典放大：
-`src/knowledge_kg.py` 42,489 行（CropDP-KG 2,536 条），`src/knowledge_fix.py`
-4,532 行（字段修补字典）。扣掉这两块，训练 / 评估 / 跨域 / 检索 / 前端的真实逻辑
-约 1.6 万行——读代码时先看这些，不必被总行数吓住。
-
-## 前置要求
-
-- **Python ≥ 3.10**：界面依赖 Gradio 6，它要求 3.10+；本仓库在 Python 3.13 + PyTorch 2.6 上实测（`requirements.txt` 的 `gradio>=6.0` 会强制这条线）。
-- **数据**：PlantVillage parquet、`data/splits.json`、`data/images/`、PlantDoc 测试图都不在仓库里，需按下节目录树自备；来源见下节表格。
-- **分类器权重**：`outputs/checkpoints/<backbone>_best.pth` 需自行训练，或按「最小复现（实测）」跑一遍就有。
-- **检索向量模型**：`assets/embedding/bge-small-zh-v1.5/` 需自行下载（HuggingFace 链接见下节）。
-- **生成层（可选）**：不附带任何大模型权重（`assets/llm/` 不入库），也不内置 API Key。没有 Key 时问答直接返回检索到的知识原文，仍然可用；要接本地模型，把权重放进 `assets/llm/<模型名>/`，并在 `src/ai_qa.py` 里把路径指过去。这一层是可选项，不承诺离线大模型的回答质量。
+界面上单张与批量诊断、病斑定位、模型评估、本地知识问答都能用；问答走本地 bge + BM25 检索，没有 API Key 也能答。分类按 PlantVillage 的 38 类 / 14 作物训练，知识库覆盖 2,645 条 / 66 作物，问答层比分类层宽，用来回答「这是什么病、怎么防」。
 
 ## 快速开始
 
-**数据与权重不在仓库里。** 需要自备下列数据，按目录放好后代码才能跑：
+需要 Python ≥ 3.10（Gradio 6 的下限）；本仓库在 3.13 + PyTorch 2.6 上实测，GPU 可选。
+
+```bash
+git clone https://github.com/zhangjingtong000/plant-disease-vision.git
+cd plant-disease-vision
+pip install -r requirements.txt
+```
+
+数据与权重不随仓库提供，需要按下面的目录自行准备：
 
 ```
-plant/
-├── data/
-│   ├── parquet/                  PlantVillage parquet：train-00000/00001、test-00000
-│   ├── images/<类别>/            prepare_data.py 生成的配平图片
-│   ├── splits.json               类别名、作物映射、样本清单
-│   └── plantdoc_extract/PlantDoc-Dataset-master/test/   PlantDoc 测试图
-├── assets/
-│   ├── samples/                  4 张示例叶片图（仓库自带，可直接拖进界面）
-│   └── embedding/bge-small-zh-v1.5/                     检索向量模型
-└── outputs/checkpoints/                                  训练产物
+data/parquet/           PlantVillage parquet（train-00000/00001、test-00000）
+data/splits.json        类别名、作物映射、样本清单
+data/images/<类别>/     prepare_data.py 生成的配平图片
+data/plantdoc_extract/  PlantDoc 测试图
+outputs/checkpoints/    <backbone>_best.pth
+assets/embedding/       bge-small-zh-v1.5
 ```
 
 | 数据 | 来源 |
 |---|---|
-| PlantVillage | https://github.com/spMohanty/PlantVillage-Dataset |
-| PlantDoc | https://github.com/pratikkayal/PlantDoc-Dataset |
-| CropDP-KG（扩充知识库来源，2,536 条） | https://github.com/dadadaray/CropDP-KG |
-| bge-small-zh-v1.5 | https://huggingface.co/BAAI/bge-small-zh-v1.5 |
+| PlantVillage | <https://github.com/spMohanty/PlantVillage-Dataset> |
+| PlantDoc | <https://github.com/pratikkayal/PlantDoc-Dataset> |
+| CropDP-KG（扩充知识库来源，2,536 条） | <https://github.com/dadadaray/CropDP-KG> |
+| bge-small-zh-v1.5 | <https://huggingface.co/BAAI/bge-small-zh-v1.5> |
+
+有数据后，训练、评估、界面：
 
 ```bash
-pip install -r requirements.txt
 python scripts/prepare_data.py              # parquet → 配平图片 + splits.json
-python src/train.py --model resnet50 --epochs 25
-python src/predict.py --split test          # 在测试集上算 top-1/top-3
-python src/cross_domain_protocol.py         # 跨域三种协议
+python src/train.py --model resnet50 --epochs 25   # 需要 GPU
+python src/predict.py --split test          # top-1 / top-3
+python src/cross_domain_protocol.py         # 跨域三种协议，需要 PlantDoc
 python app/web_agent.py                     # http://127.0.0.1:7860
 ```
 
-`assets/samples/` 里有几张示例图（苹果黑星病、玉米锈病、马铃薯健康、番茄晚疫病，共 4 张、256×256、约 136 KB），可直接拖进界面看效果（需先有模型权重；按「最小复现（实测）」跑一遍就有）。
+没有权重也能起界面：顶部标「权重未找到」，诊断页提示缺 checkpoint，知识问答、图片库和读 `results/` 的评估面板照常可用。缺 `data/splits.json` 会在启动前以退出码 2 结束，不抛裸 traceback。没有数据时 `python -m pytest -q` 仍会跑规则、前置检查与训练冒烟这些不依赖图片的用例。
 
-**没有权重也能启动。** 界面顶部标「权重未找到」，智能诊断（含右上角病斑定位面板）/ 批量诊断在推理时提示缺少 `resnet50_best.pth` 等文件；检索问答与知识库照常可用。「模型评估」页的跨域泛化面板直接读 `results/cross_domain_protocol.json`（随仓库提供），所以 Top-1 38.98%、Top-5 66.95%、Wilson 区间这些格子有数字；AdaBN、混合微调、偏移谱三项的产物不在仓库里，对应格子显示「—」而不是 0.00%。这是刻意设计：权重缺失只关掉推理路径，不连累整个界面。缺 `data/splits.json` 才是硬错误——启动时打印放置说明并以码 2 退出，而不是抛裸 traceback，检查逻辑在 `src/preflight.py`（只检查、不生成也不伪造任何数据或权重）。
+Windows 上也可以双击 `start_local.bat`，或用 `pwsh ./run_all.ps1` 依次跑训练三骨干、评估出图、性能基准、退化鲁棒、遮挡五步；跨域三协议与三条补救脚本不在这个脚本里，按上面的命令单独跑。
 
-Windows 用户可直接双击 `start_local.bat`，或 `pwsh ./run_all.ps1` 按顺序跑五步：训练三骨干 → 评估出图 → 性能基准 → 退化鲁棒 → 遮挡。跨域三协议、AdaBN、域随机化、混合域微调**不在**这个脚本里，需要按「跨域实验」小节的命令单独跑。打包版（嵌入式运行时）未包含在本仓库。
+## 功能
 
-## 最小复现（实测）
-
-上面那套命令跑的是完整实验。要回答「这台机器上这条链路通不通」，一个子集就够。
-下面是一次真实跑完的数字，原始输出在 `results/smoke_minimal.json`。
-
-**这是链路冒烟，不是 95.67%。** 8 个类别、320 张图、3 轮训练，只能说明「数据进得来、
-训得动、推得出」，不能与完整数据集上的指标并列比较。
-
-### 1. 数据：8 类 × 40 张，6 秒
-
-不需要重新下载 16 GB 的 PlantVillage。`scripts/make_smoke_subset.py` 从已有的完整
-parquet 里按类别抽样，输出格式与官方完全一致（`struct<bytes,path>` + label 索引），
-所以下一步 `prepare_data.py` 不需要任何改动：
-
-```bash
-python scripts/make_smoke_subset.py --src-parquet <完整 PlantVillage parquet 目录>   # 2.9 s
-python scripts/prepare_data.py                                                       # 3.1 s
-```
-
-| 项 | 实测值 |
+| 模块 | 能力 |
 |---|---|
-| 抽样 | 8 类 × 40 张 = 320 张，parquet 4.7 MB |
-| 类别 | 8 / 38 类有图（其余 30 类的目录为空，`splits.json` 仍按 38 类写）|
-| train / val / test | 224 / 32 / 64（每类 28 / 4 / 8）|
-| 落盘 | 320 张 jpg，9.1 MB |
+| 智能诊断 | 单张上传或内置示例；ResNet50 / EfficientNet-B0 / MobileNetV3 切换；拒识阈值；Top-5；Grad-CAM 病斑定位；PDF 报告 |
+| 批量诊断 | 目录批处理、逐张详情浮层、CSV 导出 |
+| 模型评估 | 同分布指标、评估图表、三骨干对比、跨域泛化面板、数据资产 |
+| 知识问答 | bge 向量 + jieba / BM25 混合召回；5 类意图分类；越界作物拒答；无 Key 降级为返回原文 |
+| 跨域实验 | 严格 / 折叠协议、风险—覆盖曲线、多模型一致性分层、受控偏移谱 |
+| 训练与数据 | 三骨干训练、配平划分、冒烟子集抽样、1-step 训练测试 |
 
-每类总量不足 200 张时，`prepare_data.py` 会走「按 70/10/20 等比缩减」的分支。完整
-数据集永远走不到这条路径，正好在这里被验证一次。
+界面是一个 Gradio 应用：`app/web_agent.py` 负责布局与交互（五个页签），`app/web.py` 是推理后端，两个文件复用同一条 `infer` 路径。评估页的数字从 `outputs/metrics/` 优先、`results/` 兜底读取，缺产物时显示「—」而不是 0.00%。
 
-### 2. 训练：ResNet50，3 轮，57 秒
+## 跨域实验
+
+PlantDoc 测试集 236 张、27 类。同一份 ResNet50 权重，三种口径：
+
+| 设置 | 准确率 | n | Wilson 95% CI | 出处 |
+|---|---|---|---|---|
+| 同分布测试（PlantVillage） | 95.67%（265/277） | 277 | 92.6–97.5 | `results/cross_domain_resnet50.json` |
+| PlantDoc 零样本（38 类直接 argmax） | 12.29%（29/236） | 236 | 8.7–17.1 | `results/cross_domain_diag.json` |
+| PlantDoc 折叠协议（映射到 27 类） | 38.98%（92/236） | 236 | 33.0–45.3 | 同上 |
+
+![跨域泛化面板](docs/screenshots/03-cross-domain.png)
+
+折叠协议的 Top-5 是 66.95%，多数类基线 5.08%。95.67% 的分母是 277，另有 98.52%（1064/1080）和 98.61%（1490/1511）两个不同评测集，口径见 `docs/实验记录.md`。
+
+三行 CI 都由计数按 Wilson 公式算出；95.67% 的原始 `eval_resnet50.json` 未随仓库提供，265/277 取自 `cross_domain_resnet50.json` 的 `in_domain_accuracy`。另有两个旁证：受限协议与折叠协议在 1:1 映射下等价，236 张样本上预测差异为 0（`results/cross_domain_protocol.json`）；域判别器 5 折 CV 94.81%，两个域线性可分（`results/domain_classifier.json`）。
+
+## 最小复现
+
+全量实验要 16 GB 的 PlantVillage parquet 和 GPU。只验证链路时，8 类 × 40 张就够，原始输出在 `results/smoke_minimal.json`。
 
 ```bash
+python scripts/make_smoke_subset.py --src-parquet <完整 parquet 目录>
+python scripts/prepare_data.py
 python src/train.py --model resnet50 --epochs 3 --batch 16 --workers 2
+python src/predict.py --split test
 ```
 
-| 配置 | 实测值 |
+| 项 | 实测 |
 |---|---|
-| backbone / 预训练 | ResNet50 / ImageNet1K-V2，23.59 M 参数 |
-| batch / epochs / lr | 16 / 3 / 1e-4，AdamW |
-| 每轮耗时 | 20.0 / 19.1 / 17.3 s（合计 57.1 s）|
-| train_loss | **3.3411 → 2.2120** |
-| train_acc | 30.4% → 79.9% |
-| val_acc | 62.5% → 78.1% |
+| 数据 | 8 类 × 40 张 = 320 张；train / val / test = 224 / 32 / 64 |
+| 训练 | ResNet50 3 轮，57.1 s，train_loss 3.3411 → 2.2120，val_acc 78.1% |
+| 测试 | 64 张 top-1 84.4%、top-3 100% |
+| 推理 | 预热后 11.2 ms/张（RTX 4060，batch=1） |
 
-loss 三轮单调下降，权重写到 `outputs/checkpoints/resnet50_best.pth`（90.3 MB）。
+这是链路冒烟的指标，不能和 95.67% 并列。
 
-### 3. 推理：4 张示例图 top-1 全对，约 11 ms/张
+## 实验产物
 
-`src/predict.py` 调的是界面（`app/web.py::infer`）的同一条推理路径，不是另写一套：
-
-| 示例图 | 预测 | 置信度 |
-|---|---|---|
-| `apple_scab.jpg` | Apple / Apple scab | 9.19% |
-| `corn_rust.jpg` | Corn (maize) / Common rust | 19.39% |
-| `potato_healthy.jpg` | Potato / healthy | 11.23% |
-| `tomato_late_blight.jpg` | Tomato / Late blight | 11.44% |
-
-4 张 top-1 全部命中，但置信度只有 9%–19%：3 轮、320 张的模型在 38 类 softmax 上本来
-就是这个量级，界面会把低于阈值的判为「建议人工复核」，这是预期行为。在完整划分上：
-test 64 张 top-1 84.4% / top-3 100%，val 32 张 78.1% / 100%。
-
-```bash
-python src/predict.py                # 4 张示例图 + Top-3 + 单张耗时
-python src/predict.py --split test   # 在 splits.json 的测试集上算 top-1 / top-3
-```
-
-预热后单张 11.2 ms（batch=1，3 组各 20 次取中位；同一张图重复测量在 11–16 ms 之间波动）。
-这和 `results/benchmark.json` 里完整权重（127 类旧模型）上的 9.16 ms 不是一个口径：那边是三个骨干在
-旧 127 类模型上的测量（参数量 23.77 M / 4.17 M，见「跨域实验」一节的说明），这里是
-3 轮 38 类小模型的链路验证，量级一致即说明链路通。
-
-### 4. 测试
-
-三档环境各跑一次 `python -m pytest -q`（同一台机器）：无数据 9 passed / 1 skipped；
-接入这份 320 张子集但没有权重 33 passed / 11 skipped；再接上 `resnet50_best.pth`
-40 passed / 4 skipped。三档都没有失败用例，判据与跳过项见下一节 `## 测试`。
-
-## 测试
-
-**先看实测，再看判据。** `tests/conftest.py` 在收集阶段依次判断「有没有数据 → 数据够不够
-完整 → 有没有权重 → 界面能不能起」，四件事决定收集哪些文件、跳过哪些用例：
-
-| 环境 | `pytest -q` 实测 |
-|---|---|
-| 没有 `data/splits.json` | **9 passed, 1 skipped**（约 10 s） |
-| 接数据（320 张冒烟子集）、没有权重 | **33 passed, 11 skipped**（约 34 s） |
-| 再接 `outputs/checkpoints/resnet50_best.pth` | **40 passed, 4 skipped**（约 26 s） |
-
-三档都没有 failed。完整 38 类配平数据集 + 三骨干权重的组合会再多通过「每类都有图」
-「三骨干延迟对比」「跨骨干降级」这几个用例；那需要完整数据集与三份权重，本机没有实测，
-这里不写没量过的数字。缺数据直接启动界面会在 `launch()` 之前明确报错退出（码 2），
-不抛裸 traceback。
-
-判据细节：
-
-1. **有没有数据**：缺 `data/splits.json` 时 `test_rules / test_quality / test_recovery /
-   test_smoke_data` 四个文件不收集（它们都要读真实图片与数据规模）。
-2. **数据够不够完整**：断言「每类都有图片」的用例只对发布级配平数据集成立，冒烟子集上跳过。
-3. **有没有权重**：推理、病斑定位、PDF 导出、批量吞吐这些用例要
-   `outputs/checkpoints/resnet50_best.pth`，缺权重时跳过而不是报 fail。这一档以前是
-   **5 failed**——权重缺失被当成代码 bug。另外，`web.batch_diagnose` 会逐行吞掉异常、
-   照样返回行数，所以 `TestThroughput` 除了 skipif 还先调 `web.get_model()`，让加载失败
-   当场抛出来，而不是量一段假吞吐。
-4. **界面能不能起**：`test_e2e.py` 需要 7860 有服务 + 系统装了 Chrome，否则不收集。
-
-`tests/test_smoke_data.py` 专门验证子集链路：划分比例、无跨划分泄漏、记录指向真实文件、
-checkpoint 能推出合法 Top-5。pytest、playwright 与 pymupdf（`test_rules.py` 用 `fitz`
-核对 PDF）都写在 `requirements.txt` 里。
-
-**训练链路有 1-step smoke test**：`python -m pytest tests/test_train_smoke.py -q` 用
-`assets/samples/` 的示例图 + 随机初始化权重走一遍 forward → backward → `optimizer.step`，
-断言 loss 是有限数、参数有梯度、权重被更新；不读数据集、不读 checkpoint、不需要 GPU。
-完整训练与跨域实验（三协议、AdaBN、域随机化、混合域微调）要 GPU + 数据集，只能按脚本
-手动复现，不在自动化测试范围内。
-
-## 数据与证据
-
-`results/` 下是本仓库引用的实验数字的原始输出（6 个文件，均为实测 JSON）。README 里出现的每个跨域数字都能在这里找到出处；找不到出处的数字已从 README 删除，或标注为「未随仓库提供」：
+`results/` 下 6 个 JSON 是 README 里数字的出处：
 
 | 文件 | 内容 |
 |---|---|
-| `results/smoke_minimal.json` | 最小复现实测：8 类 320 张、训练 3 轮 loss 3.3411→2.2120、test top-1 0.8438、推理 4 张全对、单张 11.2 ms |
-| `results/cross_domain_diag.json` | 跨域诊断：`acc_strict=0.1229`、`acc_fold=0.3898`、Wilson CI [0.3298, 0.4533]、risk–coverage |
-| `results/cross_domain_protocol.json` | 两种评估协议对比：`acc_restrict` 与 `acc_fold` 完全相等，即 236 个样本上 1:1 映射等价 |
-| `results/cross_domain_resnet50.json` | ResNet50 在 PlantDoc 上的逐类准确率与域内准确率 0.9567（=265/277，分母见「三个分母」表） |
-| `results/benchmark.json` | 三种骨干在 RTX 4060 上的延迟/吞吐/模型体积。**这是旧的 127 类模型产物**：参数量 23.77 M / 4.17 M / 4.36 M，当前 38 类模型是 23.59 M / 4.06 M / 4.25 M，两者不是同一代流水线（说明见「跨域实验」） |
-| `results/domain_classifier.json` | 域判别器准确率 0.9481（5 折 CV） |
+| `cross_domain_diag.json` | 严格 12.29%、折叠 38.98%、Wilson CI、Top-5、风险—覆盖、一致性分层 |
+| `cross_domain_protocol.json` | 受限与折叠协议逐样本对比（差异 0） |
+| `cross_domain_resnet50.json` | 域内准确率 0.9567 与 PlantDoc 逐类准确率 |
+| `domain_classifier.json` | 域判别器 5 折 CV 0.9481 |
+| `smoke_minimal.json` | 冒烟链路：数据、训练曲线、推理耗时 |
+| `benchmark.json` | 三骨干在 RTX 4060 上的延迟与体积（旧 127 类模型） |
 
-这份目录里**没有** AdaBN（预期路径 `outputs/metrics/bn_adapt_*.json`）、混合域微调（`outputs/metrics/mixed_*.json`）的产物，也没有同分布集上的 Top-3 指标：前者只在 `src/bn_adapt.py`、`src/mixed_finetune.py` 里有脚本，后者不在 `results/benchmark.json` 的字段里。这三项因此不在 README 中报数字。
+## 设计要点
 
-界面与这份目录的关系：跨域泛化面板按 `outputs/metrics/ → results/` 的顺序找指标文件，
-所以 clone 下来（只有 `results/`、没有 `outputs/`）也能显示 Top-1 38.98%、Top-5 66.95%、
-Wilson 区间这些数；AdaBN、混合微调、偏移谱三项缺产物时对应格子是「—」，不是 0.00%。
-面板里的结论句（比如偏移谱「S3→S4 掉多少点」）由 JSON 现算，缺文件就换成「产物未随仓库
-提供」，不会出现表格空白、旁边却写着一串硬编码数字的情况。
+- **评估协议**：初版拿全类 argmax 对 PlantDoc 标签，12.29% 系统性低估；折叠到 27 类后是 38.98%。受限协议（只在可映射类里取 argmax）在这个 1:1 映射下与折叠等价，实测 236 张预测差异 0，所以只报一个数。
+- **风险—覆盖与一致性分层**：按置信度排序弃答，覆盖 30% / 50% / 70% / 90% 时准确率 52.9% / 49.2% / 41.2% / 38.2%；多模型一致组 65%（n=80），不一致组 25.6%（n=156），骨干之间的分歧可以当免训练的拒识信号。
+- **意图分类**：450 条 5 类样本（occurrence / control / symptom / compare / system），bge 句向量 + 标准化 + 逻辑回归，5 折 CV 0.9711 ± 0.0166；模型文件缺失时回退关键词规则，问答不中断。
+- **检索降级**：检索必有、生成可选。没有 API Key 或断网时返回知识原文；作物不在白名单、病害不在知识库里时回答「超出范围」，不拿最接近的条目硬套。
 
-训练数据与权重不在仓库中，获取方式见「快速开始」。示例图片在 `assets/samples/`（4 张，约 136 KB），界面的示例按钮与「拖进界面」都读这个目录（`app/web.py` 先找 `assets/samples/`，再回退 `data/examples/`）。
+## 已知边界
 
-## 许可
+- 数据集、权重、检索向量模型都不在仓库里，`data/`、`outputs/`、`assets/embedding/` 需自备。
+- PlantDoc 只有 236 张、单一目标域，CI 宽约 12 个百分点，跨域数字读作量级与方向。
+- 95.67% / 98.52% / 98.61% 来自三个不同评测集，不能互换，README 只把 95.67% 当主口径。
+- `results/benchmark.json` 量的是旧的 127 类模型，9.16 ms / 109.2 张每秒只作同代骨干的量级参考；当前 38 类冒烟模型 11.2 ms/张（`results/smoke_minimal.json`）。
+- AdaBN、域随机化、混合域微调的脚本在 `src/`，度量产物未随仓库提供，这里不报它们的准确率。
 
-代码以 MIT 发布，见 `LICENSE`。但**内容不是 MIT**：
+## 目录结构
 
-- `src/knowledge_kg.py` 的 2,536 条文本抓取整理自 CropDP-KG（https://github.com/dadadaray/CropDP-KG），再分发须按其仓库声明的许可处理；
-- `assets/samples/` 的 4 张示例图来自 PlantVillage（https://github.com/spMohanty/PlantVillage-Dataset），版权归原作者，此处仅作界面演示；
-- PlantVillage / PlantDoc / CropDP-KG 数据集本身不在本仓库，使用与再分发请分别遵守各自条款。
+```
+plant/
+├── app/                 Gradio 界面（web_agent.py 界面层，web.py 推理后端）
+├── src/                 训练、评估、跨域实验、检索问答、知识库
+├── scripts/             数据准备、冒烟子集抽样
+├── tests/               pytest 用例，按数据 / 权重 / 界面分级跳过
+├── results/             所有被引用的实验 JSON
+├── docs/                实验记录与界面截图
+├── assets/samples/      4 张示例叶片图
+└── requirements.txt
+```
 
-## 技术栈
+## 测试
 
-PyTorch 2.6 / torchvision、ResNet50 · EfficientNet-B0 · MobileNetV3-Large、Grad-CAM、Gradio 6、jieba + rank-bm25 + bge-small-zh、Transformers、ReportLab、PyArrow。
+`python -m pytest -q`：本机（完整数据 + resnet50 权重）40 passed / 4 skipped；无数据环境只跑不需要图片和权重的用例。`tests/conftest.py` 在收集阶段按「有没有数据 → 数据够不够完整 → 有没有权重 → 界面能不能起」决定收集哪些文件，缺权重是 skip 而不是 fail。
+
+## 技术栈与许可
+
+PyTorch 2.6 / torchvision、ResNet50 · EfficientNet-B0 · MobileNetV3-Large、Grad-CAM、Gradio 6、jieba + rank-bm25 + bge-small-zh、scikit-learn、ReportLab、PyArrow。
+
+代码以 MIT 发布，见 `LICENSE`。`src/knowledge_kg.py` 的 2,536 条文本整理自 CropDP-KG，`assets/samples/` 的图片来自 PlantVillage，再分发须遵守各自许可；数据集不在仓库内。
