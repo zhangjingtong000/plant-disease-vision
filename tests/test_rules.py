@@ -95,11 +95,11 @@ class TestRAG:
         """未覆盖作物必须走越界分支。"""
         r = ai_qa.answer("水稻稻瘟病怎么防治")
         assert r["mode"] not in ("超出范围",), "水稻已收录，不该判越界"
-        # 知识库扩充后大部分作物已收录，用真正没覆盖的
-        # 未覆盖作物：要么明确说越界，要么至少不能崩、要有回答
+        # 竹子不在已收录作物里；虽然「叶枯病」在库中（葡萄·叶枯病），
+        # 也不能按病害名把葡萄的方案套给竹子。
         r2 = ai_qa.answer("竹子叶枯病怎么防治")
-        assert r2["mode"] in ("超出范围", "未收录", "知识库"), f"意外: {r2['mode']}"
-        assert r2["answer"], "不能返回空回答"
+        assert r2["mode"] == "超出范围", f"应走越界，实际: {r2['mode']}"
+        assert "葡萄·" not in r2["answer"], "不能把葡萄条目硬套给竹子"
 
     def test_unknown_disease(self):
         """覆盖作物 + 未收录病害，必须列出该作物已收录的病。"""
@@ -268,3 +268,24 @@ class TestHistory:
                 shutil.move(backup, hist_file)
             elif os.path.exists(hist_file):
                 os.remove(hist_file)
+
+
+# ============ 8. 跨域面板渲染 ============
+class TestCrossDomainRender:
+    def test_pct_formatted_once(self):
+        """百分比只能格式化一次：数据层已带 "%" 时，展示层不再补。"""
+        import web_agent
+        assert web_agent._pct_text("38.98%") == "38.98%"
+        assert web_agent._pct_text("—") == "—"
+        assert web_agent._pct_cell("38.98%") == "38.98<em>%</em>"
+        assert web_agent._pct_cell("—") == "—"
+
+    def test_no_double_percent(self):
+        """跨域面板不能渲染出 "%%"：上一轮改「读 JSON」时踩过的回归。"""
+        import web_agent
+        for fn in (web_agent.render_xd_hero, web_agent.render_xd_protocol_side):
+            html = fn()
+            assert "%%" not in html, f"{fn.__name__} 渲染出双百分号"
+        # 产物齐全时，正常值仍要出现在面板上（不是被格式化成空）
+        html = web_agent.render_xd_hero()
+        assert web_agent._XD["t1"] in html or web_agent._XD["t1"] == "—"

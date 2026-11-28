@@ -63,7 +63,12 @@ except Exception:  # 缺 data/splits.json 时不阻塞 import，界面启动前�
 HISTORY_CSV = os.path.join(config.OUTPUT_DIR, "history.csv")
 HISTORY_IMG_DIR = os.path.join(config.OUTPUT_DIR, "history_img")
 
-EXAMPLES_DIR = os.path.join(config.DATA_DIR, "examples")
+# 示例图随仓库放在 assets/samples/；老版本放在 data/examples/（该目录从未入库），
+# 两个位置都找，找不到就走「没有示例图」而不是抛 FileNotFoundError。
+EXAMPLES_DIRS = (
+    os.path.join(config.BASE_DIR, "assets", "samples"),
+    os.path.join(config.DATA_DIR, "examples"),
+)
 EXAMPLES = {
     "番茄晚疫病": "tomato_late_blight.jpg",
     "苹果黑星病": "apple_scab.jpg",
@@ -140,10 +145,15 @@ def render_status():
 
 
 def load_example(key):
-    p = os.path.join(EXAMPLES_DIR, EXAMPLES[key])
-    if not os.path.exists(p):
+    """按 key 取示例图；assets/samples 与 data/examples 都找不到时返回 None。"""
+    name = EXAMPLES.get(key)
+    if not name:
         return None
-    return Image.open(p).convert("RGB")
+    for d in EXAMPLES_DIRS:
+        p = os.path.join(d, name)
+        if os.path.exists(p):
+            return Image.open(p).convert("RGB")
+    return None
 
 
 def render_result_html(pred, top5, conf, info, low, model_name, elapsed):

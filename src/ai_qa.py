@@ -688,6 +688,67 @@ def _extract_crop(question):
     return best
 
 
+# ---- 「未收录作物 + 已收录病害名」的兜底识别 ----
+# 例：「竹子叶枯病怎么防治」——竹子不在已收录作物里，`_extract_crop` 返回
+# None，而「叶枯病」在库里（葡萄·叶枯病）。没有这层兜底，检索会按病害名
+# 把葡萄的方案套给竹子，与 README「不硬套答案」矛盾。
+# 名单里是与作物无关的高频修饰词；剥掉它们后若还剩 2–4 个字且不是已收录
+# 作物，就认为用户点了系统不覆盖的作物，按「超出范围」回答。
+_CROP_PREFIX_NOISE = tuple(sorted((
+    "怎么", "怎样", "如何", "为什么", "什么", "哪些", "哪个", "这个", "那个",
+    "这种", "那种", "请问", "一下", "我们", "你们", "他们", "自己", "别人",
+    "今天", "昨天", "明天", "最近", "现在", "已经", "好像", "可能", "一直",
+    "今年", "去年", "夏季", "秋季", "春季", "冬季", "高温", "低温", "潮湿",
+    "干燥", "常见", "主要", "严重", "轻微", "得了", "发生", "出现", "引起",
+    "治疗", "用药", "打药", "喷药", "处理", "防治",
+    "植株", "叶片", "叶子", "根部", "茎部", "果实", "幼苗", "苗期",
+    "大棚", "盆栽", "田间", "地里", "果园", "菜园", "花园", "院子", "阳台",
+    "家里", "室内", "室外", "北方", "南方", "当地", "地区", "蔬菜", "花卉",
+    "园林", "绿化", "作物", "植物", "果树", "农户", "农民", "基地",
+    "的", "了", "我", "你", "他", "它", "这", "那", "是", "有", "和", "在",
+    "防", "治",
+), key=len, reverse=True))
+
+
+def _unknown_crop_in_question(question):
+    """从「<未收录作物><已收录病害>」里拿出作物名；拿不到返回 None。
+
+    只在抽不出已收录作物、且病害名本身在知识库里时启用——纯病害名提问
+    （「叶枯病怎么防治」）没有作物前缀，仍走原流程，不算越界。
+    """
+    q = (question or "").strip()
+    if not q or _extract_crop(q):
+        return None
+    dn = _extract_disease_name(q)
+    if not dn:
+        return None
+    import re
+    base = re.sub(r"[（(].*?[）)]", "", dn).strip()
+    if len(base) < 2:
+        return None
+    idx = q.find(base)
+    if idx <= 0:
+        return None
+    m = re.search(r"([\u4e00-\u9fa5]{2,4})$", q[:idx])
+    if not m:
+        return None
+    cand = m.group(1)
+    changed = True
+    while changed and cand:
+        changed = False
+        for w in _CROP_PREFIX_NOISE:
+            if cand == w:
+                return None
+            if cand.startswith(w):
+                cand = cand[len(w):]
+                changed = True
+                break
+    if len(cand) < 2 or cand in SUPPORTED_CROPS or cand in _CROP_ALIAS:
+        return None
+    return cand
+
+
+
 # 害虫统称 → 库里的具体种（用户常说"稻飞虱"，库里是"褐飞虱""灰飞虱"）
 _PEST_ALIAS = {
     "稻飞虱": ["褐飞虱", "灰飞虱", "白背飞虱"],
@@ -838,6 +899,8 @@ def _disease_scope_message(crop, question):
 def _scope_message(crop, family):
     """越界时的说明：讲清边界、给替代、给求助途径。"""
     supported = sorted(SUPPORTED_CROPS)
+    # family 为空表示「只知道作物名、科属未收录」（例如从「竹子叶枯病」里反推出来的）
+    kind = f"同属{family}" if family else "同类"
     lines = [
         f"**本系统暂不覆盖「{crop}」**",
         "",
@@ -848,7 +911,7 @@ def _scope_message(crop, family):
 
     alts = CROP_ALTERNATIVE.get(crop) or []
     if alts:
-        lines.append(f"「{crop}」与系统内的 " + "、".join(alts) + f" 同属{family}，"
+        lines.append(f"「{crop}」与系统内的 " + "、".join(alts) + f" {kind}，"
                      f"病害类型有相通之处，可以先参考这些作物的病害描述与防治思路：")
         lines.append("")
         for a in alts:
@@ -857,7 +920,7 @@ def _scope_message(crop, family):
                     lines.append(f"- {a}·{info['disease_cn']}")
         lines.append("")
     else:
-        lines.append(f"系统内暂无与「{crop}」同属{family}的作物，无法给出相近参考。")
+        lines.append(f"系统内暂无与「{crop}」{kind}的作物，无法给出相近参考。")
         lines.append("")
 
     lines.append("**建议**：")
@@ -1134,6 +1197,13 @@ def answer(question: str, top_k: int = 4):
     if oos:
         crop, family = oos
         return {"answer": _scope_message(crop, family), "sources": [],
+                "mode": "超出范围", "elapsed": round(time.time() - t0, 2)}
+
+    # 作物名没被白名单识别、但病害名在库里（「竹子叶枯病」）：按越界回答，
+    # 不能因为「叶枯病」在库里就把葡萄的方案套上去。
+    _unk_crop = _unknown_crop_in_question(question)
+    if _unk_crop:
+        return {"answer": _scope_message(_unk_crop, ""), "sources": [],
                 "mode": "超出范围", "elapsed": round(time.time() - t0, 2)}
 
     # 病害名检查：提到的病害不在知识库里时，列出该作物已收录的病

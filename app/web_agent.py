@@ -43,7 +43,6 @@ _NCLS = len(CLASSES)
 # 知识库总条数（精编 + 扩充），与图像可识别的 _NCLS 区分开
 _NKB = len(getattr(web.knowledge, 'ALL_KNOWLEDGE', web.knowledge.KNOWLEDGE))
 _NCROP = len({v["crop_cn"] for v in web.knowledge.KNOWLEDGE.values()})
-EXAMPLES = web.EXAMPLES
 DEVICE = web.DEVICE
 
 _MODEL_LABEL = {
@@ -884,13 +883,26 @@ def _load_domain_clf_counts():
 
 
 def _pct_text(value):
-    """纯文本百分比：有值补 "%"，缺值保持 "—"（不出现 "—%"）。"""
-    return "—" if value in (None, "", "—") else "{}%".format(value)
+    """纯文本百分比：有值补 "%"，缺值保持 "—"（不出现 "—%"）。
+
+    约定：百分比只在数据层格式化一次（`_fmt_pct` 返回 "38.98%"），展示层只
+    负责保证单位存在。给已经带 "%" 的值再补一个会渲染成 "38.98%%"。
+    """
+    if value in (None, "", "—"):
+        return "—"
+    s = str(value)
+    return s if s.endswith("%") else s + "%"
 
 
 def _pct_cell(value):
-    """统计块里的百分比单元：38.98<em>%</em>；缺值只输出 "—"。"""
-    return "—" if value in (None, "", "—") else "{}<em>%</em>".format(value)
+    """统计块里的百分比单元：38.98<em>%</em>；缺值只输出 "—"。
+
+    与 `_pct_text` 同一约定：已带 "%" 时把单位包进 <em>，不重复追加。
+    """
+    if value in (None, "", "—"):
+        return "—"
+    s = str(value)
+    return s[:-1] + "<em>%</em>" if s.endswith("%") else s + "<em>%</em>"
 
 
 def _pct_raw(value):
@@ -2001,10 +2013,6 @@ def _empty_diag():
 
 def on_image_change():
     return _empty_diag()
-
-def on_example(key):
-    img = web.load_example(key)
-    return img
 
 def on_diagnose(img, model_name, thresh):
     if img is None:
