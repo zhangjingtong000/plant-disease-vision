@@ -2,8 +2,9 @@
 """preflight.py — 启动前置检查（数据清单 / 模型权重）。
 
 只检查、只报告，不生成也不伪造任何数据或权重：
-  · 缺 data/splits.json：没有类别表就构不成界面，直接给出放置说明并退出
-  · 缺模型权重：界面照常启动（检索问答、知识库、评估页可用），只告警
+  · 缺 data/splits.json：不阻断启动，进入只读演示模式
+    知识问答、图片库、评估面板照常可用；诊断 / 批量诊断 / 病斑定位显示「需数据」
+  · 缺模型权重：界面照常启动，只告警
 """
 import os
 
@@ -29,9 +30,9 @@ def missing_weights(ckpt_dir, backbones):
 
 
 def check(data_dir, ckpt_dir, backbones):
-    """返回 (blocking, messages)。
+    """返回 (read_only, messages)。
 
-    blocking=True 时调用方应终止启动（缺数据，无法解析类别表）；
+    read_only=True 表示缺数据清单，界面以只读演示模式启动（不阻断）；
     messages 是给用户看的中文明细，可直接打印。
     """
     messages = []
@@ -40,9 +41,12 @@ def check(data_dir, ckpt_dir, backbones):
     if not os.path.exists(splits):
         messages.append(
             "[启动检查] 缺少数据清单：{0}\n"
-            "  本仓库不附带数据集与模型权重。请先按 README「快速开始」准备\n"
-            "  PlantVillage parquet 并运行 `python scripts/prepare_data.py`，\n"
-            "  生成 data/splits.json 与 data/images/<类别>/ 后再启动。".format(splits)
+            "  以「只读演示模式」启动：知识问答、图片库、评估面板可用；\n"
+            "  智能诊断 / 批量诊断 / 病斑定位显示「需数据」。\n"
+            "  本仓库不附带数据集与模型权重。需要完整功能时，按 README\n"
+            "  「PlantVillage parquet 从哪来」下载 parquet 并运行\n"
+            "  `python scripts/prepare_data.py`，生成 data/splits.json 与\n"
+            "  data/images/<类别>/ 后重启。".format(splits)
         )
         return True, messages
 

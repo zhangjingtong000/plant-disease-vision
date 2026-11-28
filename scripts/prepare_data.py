@@ -4,7 +4,7 @@ prepare_data.py
 从 PlantVillage parquet 文件构建配平数据集。
 
 流程：
-1. 读取 3 个 parquet（官方 train 43503 / test 10878）
+1. 读取 data/parquet 下的全部分片（官方 train 43,503 / test 10,878）
 2. 每个类别按 70/10/20 抽取：训练 140、验证 20、测试 40（土豆健康仅 152，按可用量取）
 3. 图片落盘到 data/images/<类别>/<split>_<序号>.jpg
 4. 生成 data/splits.json（含 38 类名、14 作物映射、样本清单）
@@ -85,6 +85,28 @@ def build_crop_map():
     return crops, cls2crop
 
 
+def list_parquet():
+    """data/parquet 下的所有 parquet 分片，按文件名分组。
+
+    文件名含 `test` 的算测试集，其余算训练集；HuggingFace 下载下来的
+    `train-00000-of-00002.parquet` 这类带分片后缀的名字也能直接用，
+    不要求改名为固定的 train-00000.parquet。
+    """
+    if not os.path.isdir(PARQUET_DIR):
+        raise SystemExit(
+            "未找到 {0}。请先从 HuggingFace 下载 PlantVillage parquet，"
+            "见 README「PlantVillage parquet 从哪来」。".format(PARQUET_DIR))
+    files = sorted(f for f in os.listdir(PARQUET_DIR)
+                   if f.lower().endswith(".parquet"))
+    if not files:
+        raise SystemExit(
+            "{0} 里没有 .parquet 文件。请先从 HuggingFace 下载 PlantVillage "
+            "parquet，见 README「PlantVillage parquet 从哪来」。".format(PARQUET_DIR))
+    test_files = [f for f in files if "test" in f.lower()]
+    train_files = [f for f in files if f not in test_files]
+    return train_files, test_files
+
+
 def load_parquet_group(files):
     """读取若干 parquet，返回 {label: [(image_bytes, path), ...]}"""
     by_label = collections.defaultdict(list)
@@ -106,9 +128,11 @@ def save_jpg(raw: bytes, dst: str):
 def main():
     rng = random.Random(RNG_SEED)
 
-    print("读取 parquet ...")
-    train_pool = load_parquet_group(["train-00000.parquet", "train-00001.parquet"])
-    test_pool = load_parquet_group(["test-00000.parquet"])
+    train_files, test_files = list_parquet()
+    print("读取 parquet：训练分片 {0} 个、测试分片 {1} 个 ...".format(
+        len(train_files), len(test_files)))
+    train_pool = load_parquet_group(train_files)
+    test_pool = load_parquet_group(test_files) if test_files else {}
     raw_counts = {i: len(train_pool.get(i, [])) + len(test_pool.get(i, [])) for i in range(38)}
     print("原始总数:", sum(raw_counts.values()))
 

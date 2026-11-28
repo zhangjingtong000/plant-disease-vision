@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""启动前置检查的单元测试：缺数据阻断、缺权重只告警，都不伪造文件。
+"""启动前置检查的单元测试：缺数据进只读演示模式、缺权重只告警，都不伪造文件。
 
 运行：python -m pytest tests/test_preflight.py -q
 """
@@ -20,14 +20,17 @@ def _write_splits(data_dir):
         f.write('{"classes": [], "records": []}')
 
 
-def test_missing_data_blocks_startup():
+def test_missing_data_enters_read_only_mode():
     with tempfile.TemporaryDirectory() as tmp:
-        blocking, messages = preflight.check(tmp, os.path.join(tmp, "kein"), BACKBONES)
+        read_only, messages = preflight.check(tmp, os.path.join(tmp, "kein"), BACKBONES)
 
-    assert blocking is True
+    # 不再是 blocking=True 直接退出：缺数据时以只读演示模式启动
+    assert read_only is True
     text = "\n".join(messages)
     assert "splits.json" in text
     assert "prepare_data.py" in text
+    assert "只读演示模式" in text
+    assert "需数据" in text
 
 
 def test_missing_weights_warn_but_allow_start():

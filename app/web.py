@@ -2,7 +2,7 @@
 """
 web.py — 植物叶片病害智能诊断系统
 
-视觉规范来源：GitHub `longbridge/developers` 的 DESIGN.md（见 docs/DESIGN-longbridge.md）
+视觉规范（设计稿不在本仓库）：
   - 主强调色 Teal #00ADA2，主按钮 Black pill 999px
   - 卡片 White + 1px #EAEBEC 边框 + 16px 圆角 + 默认无阴影
   - 间距基准 4px，卡片内边距 28px/24px，容器 1200px
@@ -39,27 +39,25 @@ plt.rcParams["axes.unicode_minus"] = False
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# 启动前置检查：缺数据给明确提示并退出；缺权重只告警（不伪造权重）
+# 启动前置检查：缺数据进只读演示模式（不再退出）；缺权重只告警（不伪造权重）
 # 注意：放在函数里而不是模块顶层——这样 import web 只做依赖检查，不会在
 # pytest 收集阶段被 SystemExit 带崩。真正的启动入口（app/web_agent.py）负责调用。
 import preflight  # noqa: E402  （src/ 已在 sys.path 上）
 
 
-def preflight_or_exit(exit_code: int = 2) -> bool:
-    """缺数据时打印提示并以 exit_code 退出；缺权重只告警。返回是否通过。"""
-    blocking, msgs = preflight.check(
+def preflight_report() -> bool:
+    """打印启动检查结果。返回是否处于只读演示模式（缺数据）；不退出进程。"""
+    read_only, msgs = preflight.check(
         config.DATA_DIR, config.CKPT_DIR, config.BACKBONES)
     for msg in msgs:
         print(msg, file=sys.stderr, flush=True)
-    if blocking:
-        raise SystemExit(exit_code)
-    return True
+    return read_only
 
 
-try:
-    CLASSES = config.get_classes()
-except Exception:  # 缺 data/splits.json 时不阻塞 import，界面启动前会再检查
-    CLASSES = []
+# 缺 data/splits.json 时用内置 38 类渲染页面（只读演示模式）；
+# 诊断相关回调另行提示「需数据」，见 app/web_agent.py。
+CLASSES = config.get_classes(fallback=True)
+READ_ONLY = not config.HAS_SPLITS
 HISTORY_CSV = os.path.join(config.OUTPUT_DIR, "history.csv")
 HISTORY_IMG_DIR = os.path.join(config.OUTPUT_DIR, "history_img")
 

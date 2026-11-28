@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """web_agent.py — 植物叶片病害智能诊断系统（UI 层）
 
-设计规范：docs/DESIGN-longbridge.md
+配色与版式（设计稿不在本仓库）：
   · 强调色 Teal #00ADA2；主按钮黑色 pill；次按钮浅灰 8px 圆角
   · 卡片白底 + 1px #EAEBEC 边框 + 16px 圆角 + 默认无阴影
   · 页面底色 #F5F6F6；正文 #3C3C43 16px；标题 #0A0E19 600
@@ -71,6 +71,15 @@ _CKPT = os.path.join(web.config.CKPT_DIR, "resnet50_best.pth")
 _MODEL_READY = os.path.exists(_CKPT)
 _DEV = "GPU" if DEVICE.type == "cuda" else "CPU"
 
+# 只读演示模式：缺 data/splits.json 时界面照常起，知识问答 / 图片库 / 评估面板可用，
+# 诊断类页签统一显示「需数据」而不是抛异常退出。
+_READ_ONLY = web.READ_ONLY
+_NEED_DATA_HTML = (
+    '<div class="lb-empty-inline">需数据：本机没有 <code>data/splits.json</code> 与模型权重，'
+    '智能诊断不可用。知识问答、图片库、评估面板仍可正常使用；按 README'
+    '「PlantVillage parquet 从哪来」准备数据后重启即可解锁诊断。</div>'
+)
+
 # =====================================================================
 #  内联 SVG 图标（无外部资源）
 # =====================================================================
@@ -118,6 +127,10 @@ def render_header():
         if _MODEL_READY else
         '<span class="lb-chip is-warn"><i class="lb-dot is-warn"></i>权重未找到</span>'
     )
+    readonly = (
+        '<span class="lb-chip is-warn"><i class="lb-dot is-warn"></i>只读演示 · 缺 data/</span>'
+        if _READ_ONLY else ''
+    )
     return f'''
 <header class="lb-header">
   <div class="lb-header-inner">
@@ -131,6 +144,7 @@ def render_header():
     <div class="lb-brand-meta">
       <span class="lb-chip">{icon("cpu", 14)}{_DEV} 推理</span>
       <span class="lb-chip">{icon("layers", 14)}{len(CLASSES)} 类 · {_CROP_COUNT} 种作物</span>
+      {readonly}
       {ready}
     </div>
   </div>
@@ -2015,6 +2029,9 @@ def on_image_change():
     return _empty_diag()
 
 def on_diagnose(img, model_name, thresh):
+    if _READ_ONLY:
+        return (_NEED_DATA_HTML, "", None, None, "", "",
+                '<div class="lb-hint">只读演示模式：智能诊断需数据。</div>', None, None)
     if img is None:
         return _empty_diag()
 
@@ -2050,6 +2067,8 @@ def on_diagnose(img, model_name, thresh):
 
 def on_locate(img, model_name, thresh):
     """病斑定位：只更新右栏面板里的图片，不改变页面高度。"""
+    if _READ_ONLY:
+        return None, None, '<div class="lb-lesion-note is-warn">需数据：缺 data/ 与模型权重，病斑定位不可用。</div>', ""
     if img is None:
         return None, None, "", ""
     try:
@@ -2142,6 +2161,12 @@ def _batch_row_updates(rows):
     return tuple(out)
 
 def on_batch(files, model_name, thresh, selected=None):
+    if _READ_ONLY:
+        return (_batch_row_updates([]) +
+                (gr.update(value=None, interactive=False),
+                 "需数据：缺 data/ 与模型权重，批量诊断不可用",
+                 gr.update(choices=[], value=None), None, "", _NEED_DATA_HTML, "",
+                 None, None, "", "", [], {}, {}, ""))
     items, _ = _batch_grouped(files, _selected_paths(selected))
     if not items:
         return (_batch_row_updates([]) +
@@ -5846,7 +5871,7 @@ def _warmup():
 
 
 if __name__ == "__main__":
-    web.preflight_or_exit()   # 缺数据在此明确退出；import web 不会
+    web.preflight_report()   # 缺数据只读演示模式启动，不再以退出码 2 结束
     _warmup()
     demo = build_ui()
     demo.launch(

@@ -29,7 +29,7 @@ pip install -r requirements.txt
 数据与权重不随仓库提供，需要按下面的目录自行准备：
 
 ```
-data/parquet/           PlantVillage parquet（train-00000/00001、test-00000）
+data/parquet/           PlantVillage parquet（见下方「parquet 从哪来」）
 data/splits.json        类别名、作物映射、样本清单
 data/images/<类别>/     prepare_data.py 生成的配平图片
 data/plantdoc_extract/  PlantDoc 测试图
@@ -39,10 +39,32 @@ assets/embedding/       bge-small-zh-v1.5
 
 | 数据 | 来源 |
 |---|---|
-| PlantVillage | <https://github.com/spMohanty/PlantVillage-Dataset> |
+| PlantVillage parquet（`prepare_data.py` 的输入） | <https://huggingface.co/datasets/GVJahnavi/PlantVillage_dataset>，54,381 张 / 38 类 / 14 作物 |
 | PlantDoc | <https://github.com/pratikkayal/PlantDoc-Dataset> |
 | CropDP-KG（扩充知识库来源，2,536 条） | <https://github.com/dadadaray/CropDP-KG> |
 | bge-small-zh-v1.5 | <https://huggingface.co/BAAI/bge-small-zh-v1.5> |
+
+### PlantVillage parquet 从哪来
+
+`scripts/prepare_data.py` 读的是 HuggingFace 上的 parquet，不是 GitHub 的原始 JPG（`spMohanty/PlantVillage-Dataset` 只有按类别分目录的 JPG，没有 parquet，不能直接喂给这个脚本）。需要的是下面三个文件，全部放进 `data/parquet/`：
+
+| HuggingFace 文件 | 说明 |
+|---|---|
+| `data/train-00000-of-00002.parquet` | 训练分片 1 |
+| `data/train-00001-of-00002.parquet` | 训练分片 2 |
+| `data/test-00000-of-00001.parquet` | 测试分片 |
+
+合计 43,503 + 10,878 = 54,381 行，约 850 MB。`image` 列是图片字节，`label` 列的整数顺序与本仓库 38 类一致。
+
+```bash
+mkdir -p data/parquet
+base=https://huggingface.co/datasets/GVJahnavi/PlantVillage_dataset/resolve/main/data
+curl -L -o data/parquet/train-00000.parquet "$base/train-00000-of-00002.parquet"
+curl -L -o data/parquet/train-00001.parquet "$base/train-00001-of-00002.parquet"
+curl -L -o data/parquet/test-00000.parquet  "$base/test-00000-of-00001.parquet"
+```
+
+用 `huggingface-cli download GVJahnavi/PlantVillage_dataset --repo-type dataset --include "data/*.parquet"` 下载也可以：`prepare_data.py` 扫描 `data/parquet/*.parquet`，文件名含 `test` 的算测试集、其余算训练集，`-of-0000N` 后缀不影响。国内网络慢时给 curl 加 `-x http://127.0.0.1:7897`，或设 `HF_ENDPOINT=https://hf-mirror.com`。
 
 有数据后，训练、评估、界面：
 
@@ -54,7 +76,7 @@ python src/cross_domain_protocol.py         # 跨域三种协议，需要 PlantD
 python app/web_agent.py                     # http://127.0.0.1:7860
 ```
 
-没有权重也能起界面：顶部标「权重未找到」，诊断页提示缺 checkpoint，知识问答、图片库和读 `results/` 的评估面板照常可用。缺 `data/splits.json` 会在启动前以退出码 2 结束，不抛裸 traceback。没有数据时 `python -m pytest -q` 仍会跑规则、前置检查与训练冒烟这些不依赖图片的用例。
+没有权重也能起界面：顶部标「权重未找到」，诊断页提示缺 checkpoint，知识问答、图片库和读 `results/` 的评估面板照常可用。连 `data/splits.json` 都没有时，界面以**只读演示模式**启动：顶部标「只读演示 · 缺 data/」，知识问答、图片库、评估面板照常可用，诊断、批量诊断、病斑定位显示「需数据」，不再以退出码 2 直接结束。没有数据时 `python -m pytest -q` 仍会跑规则、前置检查与训练冒烟这些不依赖图片的用例。
 
 Windows 上也可以双击 `start_local.bat`，或用 `pwsh ./run_all.ps1` 依次跑训练三骨干、评估出图、性能基准、退化鲁棒、遮挡五步；跨域三协议与三条补救脚本不在这个脚本里，按上面的命令单独跑。
 
