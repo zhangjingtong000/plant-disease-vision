@@ -43,7 +43,13 @@ RTX 4060 上 ResNet50 单张 9.16 ms 的出处是 `results/benchmark.json` 的 `
 
 - **单文件 Gradio，五个页签**（`app/web_agent.py`，5,368 行）：智能诊断 / 批量诊断 / 模型评估 / 知识问答 / 更多。其中「病斑定位」不是页签，是智能诊断页右栏的一个面板（`app/web_agent.py:5024`），批量诊断的详情区也有同类面板；「模型评估」页下再分同分布指标 / 评估图表 / 三模型对比 / 跨域泛化 / 数据资产五个子页签。
 - **检索层**（`src/ai_qa.py`，1,103 行）：本地 bge-small-zh 向量 + jieba/BM25 混合召回；离域检测（作物白名单 + 别名剔除的规则实现，不是分类器）。
-- **意图分类**：训练样本在 `src/intent_model/cases_intent_train.py`（450 条 / 5 类，实测 occurrence 101、control 136、symptom 94、compare 86、system 33），但**模型文件 `intent_clf.pkl` 与训练脚本未随仓库提供**。`src/ai_qa.py:895` 找不到 pkl 就把加载标记为失败，运行时回退到 `_INTENT_RULES` 关键词规则。代码注释里的「严格泛化测试 84.9%」来自开发期实验，仓库内无任何出处文件，不应作为结论引用。
+- **意图分类**：`src/intent_model/` 下有训练样本（450 条 / 5 类：occurrence 101、control 136、symptom 94、compare 86、system 33）、训练脚本 `train_intent_clf.py` 和**产物 `intent_clf.pkl`（34 KB，随仓库提供）**。分类器是「bge 句向量 + StandardScaler + 逻辑回归」，5 折交叉验证准确率 **0.9711 ± 0.0166**（这个数字可以从 pkl 的 `meta` 里直接读到，也可以重跑脚本复现）。运行时还缺一样东西：bge-small-zh-v1.5 模型本体（`assets/embedding/`，不随仓库提供）——模型缺失时 `_load_intent_clf()` 返回 None，自动回退到关键词规则，问答仍然可用。重训：
+
+  ```bash
+  python src/intent_model/train_intent_clf.py \
+      --model assets/embedding/bge-small-zh-v1.5 \
+      --out src/intent_model/intent_clf.pkl
+  ```
 - **降级设计**：检索必有、生成可选。没有 API Key 或断网时直接返回检索到的知识原文，问答仍然可用，而不是报错。
 - **知识库**（实测口径，见下「能力范围」）：`src/knowledge_kg.py` 42,487 行，是自动生成的数据字典（CropDP-KG 2,536 条 / 61 作物）。
 

@@ -49,3 +49,6 @@ DOC-FIX-REPORT.md
 MOT-REPORT.md
 POLISH-REPORT.md
 REBUILD-REPORT.md
+
+# 意图分类器产物（34 KB，随仓库分发；来源与训练方式见 src/intent_model/）
+!src/intent_model/intent_clf.pkl
