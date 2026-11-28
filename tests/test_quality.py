@@ -81,10 +81,17 @@ class TestLatency:
 
 
 class TestThroughput:
+    @pytest.mark.skipif(
+        not _env.HAS_WEIGHTS,
+        reason="缺 outputs/checkpoints/resnet50_best.pth：batch_diagnose 会吞掉"
+               "加载异常并照常返回行数，量出来的「吞吐」是假的")
     def test_batch_throughput(self):
         """批量诊断 20 张的总耗时，应低于串行上界。"""
         paths = _sample_images(20)
         assert len(paths) >= 10, "样本不足"
+        # batch_diagnose 逐行 try/except，权重缺失时仍会返回行数。先单独确认
+        # 推理路径真的可用，让异常在这里冒出来，而不是被吞成一行"成功"。
+        web.get_model(config.BACKBONES[0])
         t0 = time.time()
         rows, csv_path = web.batch_diagnose(paths, config.BACKBONES[0], 0.0)
         cost = time.time() - t0

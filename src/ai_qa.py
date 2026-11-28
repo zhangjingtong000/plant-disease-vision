@@ -912,8 +912,13 @@ def _load_intent_clf():
 
         local = os.path.join(os.path.dirname(here), "assets", "embedding",
                              "bge-small-zh-v1.5")
+        # 只认本地目录：缺模型就直接放弃意图分类（调用方回退关键词规则）。
+        # 不能用 "BAAI/..." 这种 HuggingFace 仓库 ID 兜底——那会在断网环境里
+        # 触发下载重试（实测可把一次 pytest 拖到三分钟以上）。
         if not os.path.isdir(local):
-            local = "BAAI/bge-small-zh-v1.5"
+            _INTENT_LOAD_FAILED = True
+            _INTENT_CLF = None
+            return None
         tok = AutoTokenizer.from_pretrained(local)
         mdl = AutoModel.from_pretrained(local).eval()
         _INTENT_EMB = (tok, mdl)

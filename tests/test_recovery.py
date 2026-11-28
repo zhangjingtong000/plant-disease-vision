@@ -104,6 +104,9 @@ class TestHistoryRecovery:
 
 
 class TestModelRecovery:
+    @pytest.mark.skipif(
+        not _env.HAS_WEIGHTS,
+        reason="缺 outputs/checkpoints/resnet50_best.pth：主模型都加载不了，谈不上兜底")
     def test_missing_weight_falls_back(self):
         """权重文件缺失时不能白屏，主模型要能兜底。"""
         cache = web._MODEL_CACHE

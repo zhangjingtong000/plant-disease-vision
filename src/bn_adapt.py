@@ -195,7 +195,6 @@ def main():
         "state_dict": model.state_dict(),
         "classes": classes,
         "note": "BN statistics re-estimated on PlantDoc train (unlabeled)",
-        "author": "【待填写】",
     }, out_ckpt)
 
     result = {

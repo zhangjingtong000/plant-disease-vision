@@ -776,96 +776,126 @@ def _placeholder(text):
         return None
 
 
-def _load_domain_clf_stats():
-    """从 metrics 读取域分类器准确率与各折范围，避免页面写死旧数字。"""
-    import json as _json
-    p = os.path.join(web.config.METRIC_DIR, "domain_classifier.json")
+# outputs/metrics 是本地跑实验的落盘目录（被 .gitignore 忽略），results/ 是随
+# 仓库提供的实测产物。clone 下来只有 results/，所以两个目录都要找，否则跨域面板
+# 永远是空的。
+_RESULTS_DIR = os.path.join(_ROOT, "results")
+
+
+def _read_metric_json(name):
+    """按 outputs/metrics → results/ 顺序读取指标 JSON；两处都没有返回 None。"""
+    for d in (web.config.METRIC_DIR, _RESULTS_DIR):
+        p = os.path.join(d, name)
+        if not os.path.exists(p):
+            continue
+        try:
+            with io.open(p, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            continue
+    return None
+
+
+def _fmt_pct(ratio, digits=2):
+    """比率 → "38.98%"；缺值一律 "—"，不把「没有产物」显示成 0.00%。"""
+    if ratio is None:
+        return "—"
     try:
-        with io.open(p, encoding="utf-8") as f:
-            d = _json.load(f)
-        acc = d.get("domain_classifier_acc") or 0
-        cv = d.get("cv_scores") or []
-        acc_s = "{:.2f}%".format(acc * 100)
-        cv_s = "{:.1f}%–{:.1f}%".format(min(cv) * 100, max(cv) * 100) if cv else "—"
-        return acc_s, cv_s
-    except Exception:
-        return "—", "—"
+        return "{:.{}f}%".format(float(ratio) * 100.0, digits)
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _load_domain_clf_stats():
+    """域分类器准确率与各折范围；产物缺失时返回 "—"。"""
+    d = _read_metric_json("domain_classifier.json") or {}
+    cv = d.get("cv_scores") or []
+    cv_s = "{:.1f}%–{:.1f}%".format(min(cv) * 100, max(cv) * 100) if cv else "—"
+    return _fmt_pct(d.get("domain_classifier_acc")), cv_s
 
 
 _DC_ACC, _DC_CV = _load_domain_clf_stats()
 
 
 def _load_xd_stats():
-    """跨域协议指标，动态读取，避免页面写死旧数字。"""
-    import json as _json
-    p = os.path.join(web.config.METRIC_DIR, "cross_domain_protocol.json")
-    try:
-        with io.open(p, encoding="utf-8") as f:
-            d = _json.load(f)
-        return {
-            "t1": "{:.2f}".format(d.get("acc_fold", 0) * 100),
-            "ci": "{:.1f}–{:.1f}".format(d.get("ci_low", 0) * 100,
-                                        d.get("ci_high", 0) * 100),
-            "t3": "{:.2f}".format(d.get("top3", 0) * 100),
-            "t5": "{:.2f}".format(d.get("top5", 0) * 100),
-            "f1": "{:.4f}".format(d.get("macro_f1", 0)),
-            "mb": "{:.2f}".format(d.get("majority_baseline", 0) * 100),
-            "n": d.get("n", 0),
-            "nc": d.get("n_classes", 0),
-            "strict": "{:.2f}".format(d.get("acc_strict", 0) * 100),
-        }
-    except Exception:
-        return {k: "—" for k in
-                ("t1", "ci", "t3", "t5", "f1", "mb", "n", "nc", "strict")}
+    """跨域协议指标，动态读取；产物缺失时每一项都是 "—"。"""
+    d = _read_metric_json("cross_domain_protocol.json")
+    keys = ("t1", "ci", "t3", "t5", "f1", "mb", "n", "nc", "strict")
+    if not d:
+        return {k: "—" for k in keys}
+    lo, hi = d.get("ci_low"), d.get("ci_high")
+    f1 = d.get("macro_f1")
+    return {
+        "t1": _fmt_pct(d.get("acc_fold")),
+        "ci": ("{:.1f}–{:.1f}".format(lo * 100, hi * 100)
+               if lo is not None and hi is not None else "—"),
+        "t3": _fmt_pct(d.get("top3")),
+        "t5": _fmt_pct(d.get("top5")),
+        "f1": ("{:.4f}".format(f1) if f1 is not None else "—"),
+        "mb": _fmt_pct(d.get("majority_baseline")),
+        "n": d.get("n", "—"),
+        "nc": d.get("n_classes", "—"),
+        "strict": _fmt_pct(d.get("acc_strict")),
+    }
 
 
 _XD = _load_xd_stats()
 
 
 def _load_adapt_stats():
-    """AdaBN 与混合微调的最新结果。"""
-    import json as _json
-    out = {"bn_before": 0.0, "bn_after": 0.0, "mx_before": 0.0, "mx_after": 0.0}
-    try:
-        with io.open(os.path.join(web.config.METRIC_DIR,
-                                  "bn_adapt_resnet50.json"), encoding="utf-8") as f:
-            d = _json.load(f)
-        out["bn_before"] = d.get("before", 0)
-        out["bn_after"] = d.get("after", 0)
-    except Exception:
-        pass
-    try:
-        with io.open(os.path.join(web.config.METRIC_DIR,
-                                  "mixed_resnet50_mix.json"), encoding="utf-8") as f:
-            d = _json.load(f)
-        out["mx_before"] = d.get("before", 0)
-        out["mx_after"] = d.get("after", 0)
-    except Exception:
-        pass
+    """AdaBN 与混合微调的最新结果；产物缺失时保留 None，界面显示 "—"。"""
+    out = {"bn_before": None, "bn_after": None, "mx_before": None, "mx_after": None}
+    d = _read_metric_json("bn_adapt_resnet50.json")
+    if d:
+        out["bn_before"] = d.get("before")
+        out["bn_after"] = d.get("after")
+    d = _read_metric_json("mixed_resnet50_mix.json")
+    if d:
+        out["mx_before"] = d.get("before")
+        out["mx_after"] = d.get("after")
     return out
 
 
 _AD = _load_adapt_stats()
 _BN_A = _AD["bn_after"]
 _MX_A = _AD["mx_after"]
-_XD_IN = "{:.2f}".format(95.67)
+# 同分布准确率不写死：取 results/cross_domain_resnet50.json 的 in_domain_accuracy
+_XD_IN = _fmt_pct((_read_metric_json("cross_domain_resnet50.json") or {}
+                   ).get("in_domain_accuracy"))
 
 
 def _load_offset_spectrum():
-    """偏移谱各档准确率。"""
-    import json as _json
-    out = {k: 0.0 for k in ("S0", "S1", "S2", "S3", "S4", "S5")}
-    try:
-        with io.open(os.path.join(web.config.METRIC_DIR,
-                                  "offset_spectrum.json"), encoding="utf-8") as f:
-            d = _json.load(f)
+    """偏移谱各档准确率（百分数）；产物缺失时各档为 None。"""
+    out = {k: None for k in ("S0", "S1", "S2", "S3", "S4", "S5")}
+    d = _read_metric_json("offset_spectrum.json")
+    if d:
         for name, v in (d.get("levels") or {}).items():
             key = name.split(" ")[0]
             if key in out:
-                out[key] = v.get("mean", 0) * 100
-    except Exception:
-        pass
+                out[key] = (v.get("mean") or 0) * 100
     return out
+
+
+def _load_domain_clf_counts():
+    """域分类器用到的源域 / 目标域样本量（缺产物时两项都是 "—"）。"""
+    d = _read_metric_json("domain_classifier.json") or {}
+    na, nb = d.get("n_A"), d.get("n_B")
+    return ("—" if na is None else na), ("—" if nb is None else nb)
+
+
+def _pct_text(value):
+    """纯文本百分比：有值补 "%"，缺值保持 "—"（不出现 "—%"）。"""
+    return "—" if value in (None, "", "—") else "{}%".format(value)
+
+
+def _pct_cell(value):
+    """统计块里的百分比单元：38.98<em>%</em>；缺值只输出 "—"。"""
+    return "—" if value in (None, "", "—") else "{}<em>%</em>".format(value)
+
+
+def _pct_raw(value):
+    """已经是百分数的值（偏移谱）→ "95.67%"；缺值 "—"。"""
+    return "—" if value is None else "{:.2f}%".format(float(value))
 
 
 _OS = _load_offset_spectrum()
@@ -877,6 +907,11 @@ _OS_S4 = _OS["S4"]
 _OS_S5 = _OS["S5"]
 _XD_T1 = _XD["t1"]
 _XD_CI = _XD["ci"]
+# 偏移谱六档齐全时，面板才给出「哪一级开始塌陷」的结论文字
+_OS_OK = all(_OS[k] is not None for k in ("S0", "S1", "S2", "S3", "S4", "S5"))
+_DC_NA, _DC_NB = _load_domain_clf_counts()
+_MISSING_NOTE = ('<div class="lb-xd-note">该组产物未随仓库提供（<code>{}</code>），'
+                 '表格里的数字因此为空；按 README「跨域实验」可自行复跑。</div>')
 
 
 def eval_fig_values(model_name):
@@ -1392,8 +1427,9 @@ def render_eval_stats(model_name):
 # ---------------- 跨域泛化（本轮新增） ----------------
 XD_FIGS = {
     "protocol": ("14_跨域协议对比.png", "评估协议对比", "同分布 / 零样本 / 监督微调"),
-    "confusion": ("15_跨域混淆矩阵.png", "跨域混淆矩阵", "27 类 · 对角线为正确分类"),
-    "conf": ("16_置信度分布.png", "置信度分布", "同分布 0.893 → 跨域 0.494"),
+    "confusion": ("15_跨域混淆矩阵.png", "跨域混淆矩阵",
+                  f'{_XD["nc"]} 类 · 对角线为正确分类'),
+    "conf": ("16_置信度分布.png", "置信度分布", "同分布 vs 跨域"),
     "risk": ("17_风险覆盖曲线.png", "风险-覆盖曲线", "按置信度覆盖的选择性风险"),
     "consistency": ("18_三模型一致性.png", "三模型一致性", "一致 vs 不一致样本"),
     "tsne": ("19_域特征分布.png", "域特征分布", "t-SNE · 线性域分类器 " + _DC_ACC),
@@ -1414,35 +1450,48 @@ def render_xd_section_head():
 </div>'''
 
 def render_xd_hero():
+    if _XD["t1"] == "—":
+        headline = ("真实场景零样本：协议指标未随仓库提供，"
+                    "本面板不显示未经复跑的准确率")
+        note = ('<p>需要 <code>results/cross_domain_protocol.json</code>；'
+                '仓库里已带这份产物，若为空说明文件缺失或被移动。</p>')
+    else:
+        headline = (f'同分布 {_XD_IN}，真实场景零样本 {_pct_text(_XD["t1"])}'
+                    f'（折叠协议）：差距来自域偏移，而非过拟合')
+        note = (f'<p>PlantDoc 共 {_XD["n"]} 张、{_XD["nc"]} 类。多数类基线仅 '
+                f'{_pct_text(_XD["mb"])}，模型 Top-1 {_pct_text(_XD["t1"])}'
+                f'（95% CI {_XD["ci"]}），显著高于多数类基线。注意：若按严格协议'
+                f'（{_NCLS} 类直接 argmax）仅为 {_pct_text(_XD["strict"])}，'
+                f'因为细分类别与 PlantDoc 标注粒度不匹配。</p>')
     return f'''
 <div class="lb-card lb-xd-hero">
   <div class="lb-xd-hero-top">
     <div>
       <span class="lb-eyebrow">零样本跨域 · PlantDoc</span>
-      <h2>同分布 {_XD_IN}%，真实场景零样本 {_XD["t1"]}%（折叠协议）：差距来自域偏移，而非过拟合</h2>
-      <p>PlantDoc 共 {_XD["n"]} 张、{_XD["nc"]} 类。多数类基线仅 {_XD["mb"]}%，模型 Top-1 {_XD["t1"]}%（95% CI {_XD["ci"]}），显著高于多数类基线。注意：若按严格协议（127 类直接 argmax）仅为 {_XD["strict"]}%，因为细分类别与 PlantDoc 标注粒度不匹配。</p>
+      <h2>{headline}</h2>
+      {note}
     </div>
     <span class="lb-badge is-warn">真实场景零样本</span>
   </div>
   <div class="lb-xd-stats">
-    <div class="lb-xd-stat"><span>Top-1</span><b>{_XD_T1}<em>%</em></b><small>95% CI {_XD_CI} · 源 cross_domain_protocol.json</small></div>
-    <div class="lb-xd-stat"><span>Top-3</span><b>{_XD["t3"]}<em>%</em></b><small>前三个候选命中</small></div>
-    <div class="lb-xd-stat"><span>Top-5</span><b>{_XD["t5"]}<em>%</em></b><small>前五个候选命中</small></div>
+    <div class="lb-xd-stat"><span>Top-1</span><b>{_pct_cell(_XD_T1)}</b><small>95% CI {_XD_CI} · 源 cross_domain_protocol.json</small></div>
+    <div class="lb-xd-stat"><span>Top-3</span><b>{_pct_cell(_XD["t3"])}</b><small>前三个候选命中</small></div>
+    <div class="lb-xd-stat"><span>Top-5</span><b>{_pct_cell(_XD["t5"])}</b><small>前五个候选命中</small></div>
     <div class="lb-xd-stat"><span>Macro-F1</span><b>{_XD["f1"]}</b><small>{_XD["nc"]} 类宏平均</small></div>
-    <div class="lb-xd-stat"><span>多数类基线</span><b>{_XD["mb"]}<em>%</em></b><small>模型显著优于基线</small></div>
-    <div class="lb-xd-stat"><span>平均置信度</span><b>0.494</b><small>同分布 0.893</small></div>
+    <div class="lb-xd-stat"><span>多数类基线</span><b>{_pct_cell(_XD["mb"])}</b><small>模型显著优于基线</small></div>
+    <div class="lb-xd-stat"><span>测试样本</span><b>{_XD["n"]}</b><small>PlantDoc test</small></div>
   </div>
 </div>'''
 
 def render_xd_protocol_side():
     rows = [
-        ("原始模型（折叠协议）", _XD["t1"] + "%", _XD["t3"] + "%",
-         _XD["t5"] + "%", "否", "零样本泛化", "is-base"),
-        ("原始模型（严格协议）", _XD["strict"] + "%", "—", "—",
+        ("原始模型（折叠协议）", _pct_text(_XD["t1"]), _pct_text(_XD["t3"]),
+         _pct_text(_XD["t5"]), "否", "零样本泛化", "is-base"),
+        ("原始模型（严格协议）", _pct_text(_XD["strict"]), "—", "—",
          "否", "零样本泛化", ""),
-        ("AdaBN 归一化适配", "{:.2f}%".format(_BN_A * 100), "—", "—",
+        ("AdaBN 归一化适配", _fmt_pct(_BN_A), "—", "—",
          "否（无标签）", "无监督适配", ""),
-        ("混合微调", "{:.2f}%".format(_MX_A * 100), "—", "—",
+        ("混合微调", _fmt_pct(_MX_A), "—", "—",
          "是", "有监督适配", "is-best"),
     ]
     body = "".join(
@@ -1464,21 +1513,31 @@ def render_xd_protocol_side():
     <tbody>{body}</tbody>
   </table>
 </div>
-<div class="lb-xd-note">混合域微调使用目标域标签，属于有监督适配，不能与零样本方案直接比较；其 95% CI [61.6, 73.4] 与零样本 [33.0, 45.3] 不重叠。</div>'''
+<div class="lb-xd-note">混合域微调使用目标域标签，属于有监督适配，不能与零样本方案直接比较。</div>'''
 
 def render_xd_shift_side():
     rows = [
-        ("S0", "原图", "{:.2f}%".format(_OS_S0), ""),
-        ("S1", "换复杂背景", "{:.2f}%".format(_OS_S1), ""),
-        ("S2", "+ 光照扰动", "{:.2f}%".format(_OS_S2), ""),
-        ("S3", "+ 模糊压缩", "{:.2f}%".format(_OS_S3), ""),
-        ("S4", "+ 目标缩至画面 42%", "{:.2f}%".format(_OS_S4), "is-key"),
-        ("S5", "+ 视角变化", "{:.2f}%".format(_OS_S5), ""),
+        ("S0", "原图", _pct_raw(_OS_S0), ""),
+        ("S1", "换复杂背景", _pct_raw(_OS_S1), ""),
+        ("S2", "+ 光照扰动", _pct_raw(_OS_S2), ""),
+        ("S3", "+ 模糊压缩", _pct_raw(_OS_S3), ""),
+        ("S4", "+ 目标缩至画面 42%", _pct_raw(_OS_S4), "is-key"),
+        ("S5", "+ 视角变化", _pct_raw(_OS_S5), ""),
     ]
     body = "".join(
         f'<tr class="{cls}"><td><b>{lv}</b></td><td>{name}</td><td class="lb-num">{acc}</td></tr>'
         for lv, name, acc, cls in rows
     )
+    if _OS_OK:
+        callout = f'''<div class="lb-xd-callout">
+  <b>S3→S4 掉 {abs(_OS_S3 - _OS_S4):.1f} 个百分点</b>
+  <span>背景与光照变化（S1、S2）影响很小，仍在 {_pct_raw(_OS_S2)}；<b>模糊压缩（S3）一步掉到 {_pct_raw(_OS_S3)}</b>，
+  目标缩小（S4）再掉到 {_pct_raw(_OS_S4)}。PlantDoc 折叠协议为 {_pct_text(_XD["t1"])}，介于 S4 与 S5 之间，
+  说明真实场景的掉点不是单一因素，而是<b>模糊、压缩、小目标、视角</b>叠加的结果。</span>
+</div>'''
+    else:
+        callout = _MISSING_NOTE.format(
+            "outputs/metrics/offset_spectrum.json")
     return f'''
 <div class="lb-xd-side-head">
   <span class="lb-eyebrow">受控域偏移谱</span>
@@ -1491,38 +1550,46 @@ def render_xd_shift_side():
     <tbody>{body}</tbody>
   </table>
 </div>
-<div class="lb-xd-callout">
-  <b>S3→S4 掉 36.1 个百分点</b>
-  <span>背景与光照变化（S1、S2）影响很小，仍在 90.44%；<b>模糊压缩（S3）一步掉到 66.78%</b>，
-  目标缩小（S4）再掉到 30.67%。PlantDoc 折叠协议为 38.98%，介于 S4 与 S5 之间，
-  说明真实场景的掉点不是单一因素，而是<b>模糊、压缩、小目标、视角</b>叠加的结果。</span>
-</div>'''
+{callout}'''
 
 def render_xd_tsne_side():
+    if _DC_ACC == "—":
+        intro = ("域分类器产物未随仓库提供，这组数字为空；按 README「跨域实验」"
+                 "重跑 `src/domain_classifier.py` 即可补齐。")
+    else:
+        detail = ("区分准确率 {}。".format(_DC_ACC) if _DC_CV == "—" else
+                  "区分准确率 {}（各折 {}），最低一折仅 {}。".format(
+                      _DC_ACC, _DC_CV, _DC_CV.split("–")[0]))
+        intro = (f"用 ResNet50 的全局池化特征训练线性域分类器（源域 {_DC_NA} 张 / "
+                 f"PlantDoc {_DC_NB} 张，5 折交叉验证），{detail}"
+                 "说明两域差异是结构性的，不是单张样本噪声。")
+    if _OS_OK:
+        bullets = f'''
+<div class="lb-xd-bullets">
+  <div><b>背景 / 光照</b><span>S1–S2 从 {_pct_raw(_OS_S0)} 降到 {_pct_raw(_OS_S2)}，仅掉 {abs(_OS_S0 - _OS_S2):.1f} 个点，不是主因。</span></div>
+  <div><b>模糊 / 压缩</b><span>S3 从 {_pct_raw(_OS_S2)} 掉到 {_pct_raw(_OS_S3)}，一步掉 {abs(_OS_S2 - _OS_S3):.1f} 个点，是主因之一。</span></div>
+  <div><b>小目标 / 视角</b><span>S4 为 {_pct_raw(_OS_S4)}、S5 降到 {_pct_raw(_OS_S5)}，目标变小与拍摄角度进一步放大误差。</span></div>
+</div>'''
+    else:
+        bullets = _MISSING_NOTE.format("outputs/metrics/offset_spectrum.json")
     return f'''
 <div class="lb-xd-side-head">
   <span class="lb-eyebrow">域特征分布</span>
   <h2>两域存在系统性偏移</h2>
-  <p>用 ResNet50 的全局池化特征训练线性域分类器（源域 400 张 / PlantDoc 236 张，5 折交叉验证），
-     区分准确率 {_DC_ACC}（各折 {_DC_CV}）。说明两域差异是结构性的，不是单张样本噪声；
-     但也有一折仅 {_DC_CV.split("–")[0]}，说明部分类簇存在重叠，并非完全可分。</p>
+  <p>{intro}</p>
 </div>
-<div class="lb-xd-bullets">
-  <div><b>背景 / 光照</b><span>S1–S2 从 95.67% 降到 90.44%，仅掉 5.2 个点，不是主因。</span></div>
-  <div><b>模糊 / 压缩</b><span>S3 从 90.44% 掉到 66.78%，一步掉 23.7 个点，是主因之一。</span></div>
-  <div><b>小目标 / 视角</b><span>S4 为 30.67%、S5 降到 16.11%，目标变小与拍摄角度进一步放大误差。</span></div>
-</div>
+{bullets}
 <div class="lb-xd-note">跨域掉点由系统性域偏移主导，其中<b>模糊压缩与小目标</b>贡献最大；这提示实际使用时应尽量保证病斑在画面中占比足够、图像清晰。</div>'''
 
 def render_xd_limitations():
-    return '''
+    return f'''
 <div class="lb-card lb-xd-limit">
   <div class="lb-card-head">
     <div><h2>局限说明</h2><p>这组数字能说明方向，但不能外推为所有田间场景的精度承诺。</p></div>
     <span class="lb-hint">使用边界</span>
   </div>
   <ul>
-    <li><b>样本量</b>PlantDoc 仅 236 张，Top-1 的 95% CI 为 33.0%–45.3%，区间较宽。</li>
+    <li><b>样本量</b>PlantDoc 仅 {_XD["n"]} 张，Top-1 的 95% CI 为 {_XD["ci"]}，区间较宽。</li>
     <li><b>域覆盖</b>只覆盖 PlantDoc 一个目标域，尚无第三域复现。</li>
     <li><b>方案可比性</b>混合域微调使用了目标域标签，是有监督适配，不能与零样本泛化直接比较。</li>
     <li><b>扰动设置</b>偏移谱是受控合成扰动，真实田间可能叠加多种因素；S4/S5 用于机制诊断，不是田间精度承诺。</li>
@@ -4078,7 +4145,7 @@ div.block.lb-pdf-foot{
 .lb-kb-panel .lb-shot{height:100px!important;}
 
 
-/* ---------- 127 类 / 28 作物适配 ---------- */
+/* ---------- 示例图 / 库内联按钮适配 ---------- */
 .lb-example-head{
   display:flex!important;align-items:center!important;justify-content:space-between!important;
   gap:8px!important;margin:0 0 6px!important;height:28px!important;flex-wrap:nowrap!important;
@@ -5079,7 +5146,7 @@ def build_ui():
                             )
                             with gr.Row(elem_classes="lb-example-head"):
                                 gr.HTML('<div class="lb-example-label"><span>内置示例</span>'
-                                        '<em>按作物选择，图片库可看全部 {_NCLS} 类</em></div>',
+                                        f'<em>按作物选择，图片库可看全部 {_NCLS} 类</em></div>',
                                         elem_classes="lb-html")
                                 lib_btn = gr.Button("图片库", elem_classes="lb-example lb-lib-trigger lb-lib-inline",
                                                     size="sm")

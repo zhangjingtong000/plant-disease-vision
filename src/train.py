@@ -129,7 +129,6 @@ def main():
                 "classes": config.get_classes(),
                 "val_acc": val_acc,
                 "epoch": epoch,
-                "author": "【待填写】",
             }, ckpt_path)
             log(f"  -> 保存最佳模型（val_acc={val_acc:.4f}）")
         else:

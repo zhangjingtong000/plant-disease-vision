@@ -211,7 +211,7 @@ def main():
             best, best_ep = vacc, ep
             torch.save({"model_name": ckpt["model_name"], "state_dict": model.state_dict(),
                         "classes": classes, "val_b_acc": vacc,
-                        "note": "mixed-domain finetune (A + B_train)", "author": "【待填写】"},
+                        "note": "mixed-domain finetune (A + B_train)"},
                        out_ckpt)
             log(f"  保存最佳 {vacc:.4f}")
 

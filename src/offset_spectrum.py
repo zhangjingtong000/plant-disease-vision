@@ -180,7 +180,7 @@ def main():
     ckpt = torch.load(os.path.join(config.CKPT_DIR, f"{args.tag}_best.pth"),
                       map_location=device, weights_only=False)
     model = build_model(ckpt["model_name"], len(config.load_splits()["classes"]), pretrained=False)
-    # 类别数从 splits 读取，避免写死 38 导致 127 类模型加载失败
+    # 类别数从 splits 读取，不写死 38：换数据集时不用改代码
     model.load_state_dict(ckpt["state_dict"])
     model.to(device).eval()
 

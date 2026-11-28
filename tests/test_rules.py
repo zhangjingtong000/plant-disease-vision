@@ -18,6 +18,12 @@ import knowledge  # noqa: E402
 import ai_qa  # noqa: E402
 import conftest as _env  # noqa: E402  （同一目录的 conftest，提供环境判据）
 
+# 下面几个用例要走真实推理（infer / locate_raw / make_pdf 内部的模型调用），
+# 只准备了数据、没训权重时跳过而不是失败。
+_NEED_WEIGHTS = pytest.mark.skipif(
+    not _env.HAS_WEIGHTS,
+    reason="缺 outputs/checkpoints/resnet50_best.pth：该用例要走真实推理")
+
 
 # ============ 1. 数据完整性 ============
 class TestDataIntegrity:
@@ -109,6 +115,7 @@ class TestRAG:
 
 # ============ 3. 拒识逻辑 ============
 class TestRejection:
+    @_NEED_WEIGHTS
     def test_threshold_boundary(self):
         """置信度低于阈值必须拒识，高于必须放行。"""
         # 用真实模型跑一张图，取置信度，再构造阈值边界
@@ -128,6 +135,7 @@ class TestRejection:
 
 # ============ 4. 病斑比例 ============
 class TestLesion:
+    @_NEED_WEIGHTS
     def test_lesion_ratio_range(self):
         """病斑比例必须在 [0, 1]。"""
         import web
@@ -194,6 +202,7 @@ class TestLeafGuard:
 
 # ============ 6. PDF 生成 ============
 class TestPDF:
+    @_NEED_WEIGHTS
     def test_one_page(self):
         """PDF 必须是一页。"""
         import web
@@ -212,6 +221,7 @@ class TestPDF:
         assert n == 1, f"PDF 页数 {n}，期望 1"
         assert len(text) > 100, "PDF 内容过少"
 
+    @_NEED_WEIGHTS
     def test_pdf_contains_class_name(self):
         """PDF 里必须出现诊断出的病害中文名。"""
         import web

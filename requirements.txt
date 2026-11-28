@@ -25,3 +25,8 @@ transformers
 openai
 reportlab
 requests
+
+# ---------- 测试 ----------
+pytest
+playwright
+pymupdf      # tests/test_rules.py 用 fitz 校验生成的 PDF

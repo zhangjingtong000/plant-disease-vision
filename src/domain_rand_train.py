@@ -243,8 +243,8 @@ def main():
         if vacc > best:
             best, best_ep, bad = vacc, ep, 0
             torch.save({"model_name": args.model, "state_dict": model.state_dict(),
-                        "classes": config.get_classes(), "val_acc": vacc, "epoch": ep,
-                        "author": "【待填写】"}, ckpt_path)
+                        "classes": config.get_classes(), "val_acc": vacc, "epoch": ep},
+                       ckpt_path)
             log(f"  保存最佳 val_acc={vacc:.4f}")
         else:
             bad += 1

@@ -26,7 +26,7 @@
 | AdaBN 单轮 | — | 脚本 `src/bn_adapt.py` 可跑，度量产物未随仓库提供，不报数字 |
 | 混合域微调 | — | 脚本 `src/mixed_finetune.py` 可跑，度量产物未随仓库提供，不报数字 |
 
-RTX 4060 上 ResNet50 单张 9.16 ms 的出处是 `results/benchmark.json` 的 `latency_ms`；Top-3 指标不在该文件里，本 README 不再报同分布集上的 Top-3。AdaBN 与混合域微调的产物路径是 `outputs/metrics/bn_adapt_*.json` 与 `outputs/metrics/mixed_*.json`，这两个目录里没有对应文件——原始实验数据未随仓库提供，需要 GPU 与目标域标注自行补跑。
+RTX 4060 上 ResNet50 单张 9.16 ms 的出处是 `results/benchmark.json` 的 `latency_ms`；Top-3 指标不在该文件里，本 README 不再报同分布集上的 Top-3。AdaBN 与混合域微调的产物路径是 `outputs/metrics/bn_adapt_*.json` 与 `outputs/metrics/mixed_*.json`，仓库里没有这两个文件——原始实验数据未随仓库提供，需要 GPU 与目标域标注自行补跑。
 
 以上 95.67% / 12.29% / 38.98% / Wilson 区间 / n=236 五个值都能由 `results/` 下的 JSON 直接复算：29/236=12.29%、92/236=38.98%、0.9567 为 `in_domain_accuracy`，CI 用 Wilson 公式代入 p=92/236、n=236、z=1.96 即得 [0.3298, 0.4533]。
 
@@ -41,9 +41,9 @@ RTX 4060 上 ResNet50 单张 9.16 ms 的出处是 `results/benchmark.json` 的 `
 
 ## 系统组成
 
-- **单文件 Gradio，五个页签**（`app/web_agent.py`，5,368 行）：智能诊断 / 批量诊断 / 模型评估 / 知识问答 / 更多。其中「病斑定位」不是页签，是智能诊断页右栏的一个面板（`app/web_agent.py:5024`），批量诊断的详情区也有同类面板；「模型评估」页下再分同分布指标 / 评估图表 / 三模型对比 / 跨域泛化 / 数据资产五个子页签。
-- **检索层**（`src/ai_qa.py`，1,103 行）：本地 bge-small-zh 向量 + jieba/BM25 混合召回；离域检测（作物白名单 + 别名剔除的规则实现，不是分类器）。
-- **意图分类**：`src/intent_model/` 下有训练样本（450 条 / 5 类：occurrence 101、control 136、symptom 94、compare 86、system 33）、训练脚本 `train_intent_clf.py` 和**产物 `intent_clf.pkl`（34 KB，随仓库提供）**。分类器是「bge 句向量 + StandardScaler + 逻辑回归」，5 折交叉验证准确率 **0.9711 ± 0.0166**（这个数字可以从 pkl 的 `meta` 里直接读到，也可以重跑脚本复现）。运行时还缺一样东西：bge-small-zh-v1.5 模型本体（`assets/embedding/`，不随仓库提供）——模型缺失时 `_load_intent_clf()` 返回 None，自动回退到关键词规则，问答仍然可用。重训：
+- **单文件 Gradio，五个页签**（`app/web_agent.py`，5,857 行）：智能诊断 / 批量诊断 / 模型评估 / 知识问答 / 更多。其中「病斑定位」不是页签，是智能诊断页右栏的一个面板（`app/web_agent.py:5205`），批量诊断的详情区也有同类面板；「模型评估」页下再分同分布指标 / 评估图表 / 三模型对比 / 跨域泛化 / 数据资产五个子页签。
+- **检索层**（`src/ai_qa.py`，1,296 行）：本地 bge-small-zh 向量 + jieba/BM25 混合召回；离域检测（作物白名单 + 别名剔除的规则实现，不是分类器）。
+- **意图分类**：`src/intent_model/` 下有训练样本（450 条 / 5 类：occurrence 101、control 136、symptom 94、compare 86、system 33）、训练脚本 `train_intent_clf.py` 和**产物 `intent_clf.pkl`（34 KB，随仓库提供）**。分类器是「bge 句向量 + StandardScaler + 逻辑回归」，5 折交叉验证准确率 **0.9711 ± 0.0166**（这个数字可以从 pkl 的 `meta` 里直接读到，也可以重跑脚本复现）。运行时还缺一样东西：bge-small-zh-v1.5 模型本体（`assets/embedding/`，不随仓库提供）——模型缺失时 `_load_intent_clf()` 直接返回 None，自动回退到关键词规则，问答仍然可用。这里只认本地目录，不会退回 HuggingFace 模型 ID 去联网下载：断网环境下 `pytest -q` 不会被下载重试拖慢。重训：
 
   ```bash
   python src/intent_model/train_intent_clf.py \
@@ -71,9 +71,10 @@ RTX 4060 上 ResNet50 单张 9.16 ms 的出处是 `results/benchmark.json` 的 `
 
 `app/`（Gradio 界面）→ `src/`（训练、评估、跨域实验、检索、知识库）→ `scripts/`（数据准备与抽样）→ `tests/` → `results/`（引用的全部实测 JSON）。
 
-共 51 个 Python 文件、61,268 行。这个总数会被自动生成的数据字典放大：`src/knowledge_kg.py`
-42,487 行（CropDP-KG 2,536 条），`src/knowledge_fix.py` 4,530 行（字段修补字典）。扣掉这两块，
-训练 / 评估 / 跨域 / 检索 / 前端的真实逻辑约 1.4 万行——读代码时先看这些，不必被总行数吓住。
+共 53 个 Python 文件、63,183 行（含空行）。这个总数会被自动生成的数据字典放大：
+`src/knowledge_kg.py` 42,489 行（CropDP-KG 2,536 条），`src/knowledge_fix.py`
+4,532 行（字段修补字典）。扣掉这两块，训练 / 评估 / 跨域 / 检索 / 前端的真实逻辑
+约 1.6 万行——读代码时先看这些，不必被总行数吓住。
 
 ## 前置要求
 
@@ -117,7 +118,7 @@ python app/web_agent.py                     # http://127.0.0.1:7860
 
 `assets/samples/` 里有几张示例图（苹果黑星病、玉米锈病、马铃薯健康、番茄晚疫病，共 4 张、256×256、约 136 KB），可直接拖进界面看效果（需先有模型权重；按「最小复现（实测）」跑一遍就有）。
 
-**没有权重也能启动。** 界面顶部标「权重未找到」，智能诊断（含右上角病斑定位面板）/ 批量诊断在推理时提示缺少 `resnet50_best.pth` 等文件；检索问答、知识库与「模型评估」页照常可用。这是刻意设计：权重缺失只关掉推理路径，不连累整个界面。缺 `data/splits.json` 才是硬错误——启动时打印放置说明并以码 2 退出，而不是抛裸 traceback，检查逻辑在 `src/preflight.py`（只检查、不生成也不伪造任何数据或权重）。
+**没有权重也能启动。** 界面顶部标「权重未找到」，智能诊断（含右上角病斑定位面板）/ 批量诊断在推理时提示缺少 `resnet50_best.pth` 等文件；检索问答与知识库照常可用。「模型评估」页的跨域泛化面板直接读 `results/cross_domain_protocol.json`（随仓库提供），所以 Top-1 38.98%、Top-5 66.95%、Wilson 区间这些格子有数字；AdaBN、混合微调、偏移谱三项的产物不在仓库里，对应格子显示「—」而不是 0.00%。这是刻意设计：权重缺失只关掉推理路径，不连累整个界面。缺 `data/splits.json` 才是硬错误——启动时打印放置说明并以码 2 退出，而不是抛裸 traceback，检查逻辑在 `src/preflight.py`（只检查、不生成也不伪造任何数据或权重）。
 
 Windows 用户可直接双击 `start_local.bat`，或 `pwsh ./run_all.ps1` 按顺序跑五步：训练三骨干 → 评估出图 → 性能基准 → 退化鲁棒 → 遮挡。跨域三协议、AdaBN、域随机化、混合域微调**不在**这个脚本里，需要按「跨域实验」小节的命令单独跑。打包版（嵌入式运行时）未包含在本仓库。
 
@@ -193,21 +194,41 @@ python src/predict.py --split test   # 在 splits.json 的测试集上算 top-1 
 
 ### 4. 测试
 
-无数据时 6 passed；接入这份 320 张子集后 35 passed, 3 skipped（跳过的三个要求「每类都有
-图」「三骨干都有权重」）。筛选逻辑、smoke test 与完整训练的前提，见下一节 `## 测试`。
+三档环境各跑一次 `python -m pytest -q`（同一台机器）：无数据 9 passed / 1 skipped；
+接入这份 320 张子集但没有权重 31 passed / 11 skipped；再接上 `resnet50_best.pth`
+38 passed / 4 skipped。三档都没有失败用例，判据与跳过项见下一节 `## 测试`。
 
 ## 测试
 
-**没有数据时** `python -m pytest -q` 是 **6 passed**：`tests/conftest.py` 在缺 `data/splits.json`
-时跳过 `test_rules / test_quality / test_recovery / test_smoke_data / test_e2e` 五个依赖真实
-图片、数据规模与界面的文件。缺数据直接启动界面会在 `launch()` 之前明确报错退出（码 2），
+**先看实测，再看判据。** `tests/conftest.py` 在收集阶段依次判断「有没有数据 → 数据够不够
+完整 → 有没有权重 → 界面能不能起」，四件事决定收集哪些文件、跳过哪些用例：
+
+| 环境 | `pytest -q` 实测 |
+|---|---|
+| 没有 `data/splits.json` | **9 passed, 1 skipped**（约 10 s） |
+| 接数据（320 张冒烟子集）、没有权重 | **31 passed, 11 skipped**（约 18 s） |
+| 再接 `outputs/checkpoints/resnet50_best.pth` | **38 passed, 4 skipped**（约 25 s） |
+
+三档都没有 failed。完整 38 类配平数据集 + 三骨干权重的组合会再多通过「每类都有图」
+「三骨干延迟对比」「跨骨干降级」这几个用例；那需要完整数据集与三份权重，本机没有实测，
+这里不写没量过的数字。缺数据直接启动界面会在 `launch()` 之前明确报错退出（码 2），
 不抛裸 traceback。
 
-接入数据后变成 **35 passed, 3 skipped**。分档判断有三条：有没有数据、数据够不够完整（是否
-每类都有图）、界面能不能起（7860 有服务 + 系统装了 Chrome）。只有需要「每类都有图 + 三骨干
-都有权重」的用例在冒烟子集上跳过，分别是全类目录完整性、三骨干延迟对比、跨骨干降级；
-其余照常跑。`tests/test_smoke_data.py` 专门验证子集链路：划分比例、无跨划分泄漏、记录指向
-真实文件、checkpoint 能推出合法 Top-5。筛选逻辑全在 `tests/conftest.py`，不需要改代码。
+判据细节：
+
+1. **有没有数据**：缺 `data/splits.json` 时 `test_rules / test_quality / test_recovery /
+   test_smoke_data` 四个文件不收集（它们都要读真实图片与数据规模）。
+2. **数据够不够完整**：断言「每类都有图片」的用例只对发布级配平数据集成立，冒烟子集上跳过。
+3. **有没有权重**：推理、病斑定位、PDF 导出、批量吞吐这些用例要
+   `outputs/checkpoints/resnet50_best.pth`，缺权重时跳过而不是报 fail。这一档以前是
+   **5 failed**——权重缺失被当成代码 bug。另外，`web.batch_diagnose` 会逐行吞掉异常、
+   照样返回行数，所以 `TestThroughput` 除了 skipif 还先调 `web.get_model()`，让加载失败
+   当场抛出来，而不是量一段假吞吐。
+4. **界面能不能起**：`test_e2e.py` 需要 7860 有服务 + 系统装了 Chrome，否则不收集。
+
+`tests/test_smoke_data.py` 专门验证子集链路：划分比例、无跨划分泄漏、记录指向真实文件、
+checkpoint 能推出合法 Top-5。pytest、playwright 与 pymupdf（`test_rules.py` 用 `fitz`
+核对 PDF）都写在 `requirements.txt` 里。
 
 **训练链路有 1-step smoke test**：`python -m pytest tests/test_train_smoke.py -q` 用
 `assets/samples/` 的示例图 + 随机初始化权重走一遍 forward → backward → `optimizer.step`，
@@ -229,6 +250,12 @@ python src/predict.py --split test   # 在 splits.json 的测试集上算 top-1 
 | `results/domain_classifier.json` | 域判别器准确率 0.9481（5 折 CV） |
 
 这份目录里**没有** AdaBN（预期路径 `outputs/metrics/bn_adapt_*.json`）、混合域微调（`outputs/metrics/mixed_*.json`）的产物，也没有同分布集上的 Top-3 指标：前者只在 `src/bn_adapt.py`、`src/mixed_finetune.py` 里有脚本，后者不在 `results/benchmark.json` 的字段里。这三项因此不在 README 中报数字。
+
+界面与这份目录的关系：跨域泛化面板按 `outputs/metrics/ → results/` 的顺序找指标文件，
+所以 clone 下来（只有 `results/`、没有 `outputs/`）也能显示 Top-1 38.98%、Top-5 66.95%、
+Wilson 区间这些数；AdaBN、混合微调、偏移谱三项缺产物时对应格子是「—」，不是 0.00%。
+面板里的结论句（比如偏移谱「S3→S4 掉多少点」）由 JSON 现算，缺文件就换成「产物未随仓库
+提供」，不会出现表格空白、旁边却写着一串硬编码数字的情况。
 
 训练数据与权重不在仓库中，获取方式见「快速开始」。示例图片在 `assets/samples/`（4 张，约 136 KB），可直接拖进界面。
 

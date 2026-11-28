@@ -107,7 +107,7 @@ def main():
     model.load_state_dict(ckpt["state_dict"])
     model.to(device).eval()
 
-    classes = config.get_classes()          # 当前类别数（127）
+    classes = config.get_classes()          # 源域类别表（随 data/splits.json 变化）
     n_cls = len(classes)
     # 目标类（按 PlantDoc 目录顺序）
     targets = [c for c in CLS_MAP.values() if c in classes]
@@ -167,7 +167,7 @@ def main():
         pred38 = int(p38.argmax())
         if pred38 == classes.index(targets[ti]):
             strict += 1
-        # fold：折叠到 28 类
+        # fold：按 1:1 映射折叠到 PlantDoc 的目标类（n_tgt 类）
         p28 = p38 @ fold
         fold_pred[i] = int(p28.argmax())
         confs[i] = float(p28.max())
